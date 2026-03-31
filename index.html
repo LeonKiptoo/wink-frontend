@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300,0&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+/* Your original CSS – unchanged */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --g:#4d635e;--gd:#415752;--gl:#cfe8e1;--gf:#eef5f3;
@@ -373,6 +374,7 @@ hr.md{border:none;border-top:1px solid var(--bd);margin:18px 0}
       <button class="qb" onclick="runQA('gap')">Research gap</button>
       <button class="qb" onclick="runQA('definitions')">Key terms</button>
       <button class="qb" onclick="runQA('compare')">Compare documents</button>
+      <button class="qb" onclick="resetUser()" style="color:var(--red);border-color:var(--red)">⚠ Reset all data</button>
     </div>
   </aside>
 </div>
@@ -423,405 +425,326 @@ hr.md{border:none;border-top:1px solid var(--bd);margin:18px 0}
 </div>
 
 <script>
-const SB_URL='https://ycznroxjicvberxeacba.supabase.co';
-const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljem5yb3hqaWN2YmVyeGVhY2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NDYyOTUsImV4cCI6MjA5MDIyMjI5NX0.bqHauVDwrzgGxZSYdiA9S2LQgAjdV7BhAv6zdRMTSC4';
-const API='https://wnkia-backend-production.up.railway.app';
-const FREE_LIMIT=3;
-const BLOCKED=['mailinator','guerrillamail','tempmail','throwaway','yopmail','10minutemail','trashmail','disposablemail','sharklasers','mailnull'];
+// ========== CONFIGURATION ==========
+// Use a global variable to set the backend URL (can be overridden in deployment)
+const API_BASE = window.ENV_API_BASE || 'https://wnkia-backend-production.up.railway.app';
 
-const QA_LABELS={
-  overview:'Document Overview',methodology:'Methodology',findings:'Key Findings',
-  insights:'Key Insights',limitations:'Limitations',gap:'Research Gap',
-  definitions:'Key Terms',compare:'Compare Documents'
+// Supabase config (unchanged)
+const SB_URL = 'https://ycznroxjicvberxeacba.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljem5yb3hqaWN2YmVyeGVhY2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NDYyOTUsImV4cCI6MjA5MDIyMjI5NX0.bqHauVDwrzgGxZSYdiA9S2LQgAjdV7BhAv6zdRMTSC4';
+const FREE_LIMIT = 3;
+const BLOCKED = ['mailinator','guerrillamail','tempmail','throwaway','yopmail','10minutemail','trashmail','disposablemail','sharklasers','mailnull'];
+
+// Quick‑action labels (unchanged)
+const QA_LABELS = {
+  overview:'Document Overview', methodology:'Methodology', findings:'Key Findings',
+  insights:'Key Insights', limitations:'Limitations', gap:'Research Gap',
+  definitions:'Key Terms', compare:'Compare Documents'
 };
-const LNAMES={general:'General',research:'Research',contract:'Legal',medical:'Medical'};
-const LCLASS={general:'',research:'lr',contract:'ll',medical:'lm'};
+const LNAMES = { general:'General', research:'Research', contract:'Legal', medical:'Medical' };
+const LCLASS = { general:'', research:'lr', contract:'ll', medical:'lm' };
 
-const sb=supabase.createClient(SB_URL,SB_KEY);
-let user=null,profile=null,docs=[],lens='general',convId=null,apiReady=false,waking=false,docCount=0;
+// Supabase client
+const sb = supabase.createClient(SB_URL, SB_KEY);
+let user = null, profile = null, docs = [], lens = 'general', convId = null, apiReady = false, waking = false, docCount = 0;
 
-function apiH(){const h={};if(user?.id)h['X-User-ID']=user.id;return h}
-function toast(m,d=3000){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),d)}
-function setSt(c,tx){document.getElementById('sd').className='sd '+c;document.getElementById('stx').textContent=tx}
-
-// ── WAKEUP ──────────────────────────────────────────────────────────────────
-async function wakeAPI(){
-  if(waking)return;waking=true;
-  document.getElementById('wb').classList.add('show');
-  setSt('wk','Starting up…');
-  for(let i=0;i<25;i++){
-    try{
-      const r=await fetch(`${API}/`,{headers:apiH(),signal:AbortSignal.timeout(12000)});
-      if(r.ok){apiReady=true;waking=false;document.getElementById('wb').classList.remove('show');setSt('on','Online');return}
-    }catch(e){}
-    const s=Math.round((25-i)*8);
-    document.getElementById('wbt').textContent=`Backend starting — approx ${s}s remaining. Type your question now.`;
-    await new Promise(r=>setTimeout(r,8000));
-  }
-  waking=false;document.getElementById('wb').classList.remove('show');setSt('off','Offline — retrying');setTimeout(wakeAPI,30000);
+// ========== HELPER FUNCTIONS ==========
+function toast(m, d=3000) {
+  const t = document.getElementById('toast');
+  t.textContent = m;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), d);
+}
+function setSt(c, tx) {
+  document.getElementById('sd').className = 'sd ' + c;
+  document.getElementById('stx').textContent = tx;
 }
 
-// ── INIT ────────────────────────────────────────────────────────────────────
-async function init(){
-  const{data:{session}}=await sb.auth.getSession();
-  if(session){await loadUser(session.user);showApp()}else showAuth();
-  sb.auth.onAuthStateChange(async(ev,sess)=>{
-    if(ev==='SIGNED_IN'&&sess){await loadUser(sess.user);showApp()}
-    else if(ev==='SIGNED_OUT')showAuth();
+// ** NEW: Get headers with Bearer token **
+async function apiHeaders() {
+  const headers = {};
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+  return headers;
+}
+
+// ========== WAKE API (checks health, not root) ==========
+async function wakeAPI() {
+  if (waking) return;
+  waking = true;
+  document.getElementById('wb').classList.add('show');
+  setSt('wk', 'Starting up…');
+  for (let i = 0; i < 25; i++) {
+    try {
+      // Use /health endpoint (faster, no auth)
+      const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(12000) });
+      if (res.ok) {
+        apiReady = true;
+        waking = false;
+        document.getElementById('wb').classList.remove('show');
+        setSt('on', 'Online');
+        return;
+      }
+    } catch (e) {}
+    const s = Math.round((25 - i) * 8);
+    document.getElementById('wbt').textContent = `Backend starting — approx ${s}s remaining. Type your question now.`;
+    await new Promise(r => setTimeout(r, 8000));
+  }
+  waking = false;
+  document.getElementById('wb').classList.remove('show');
+  setSt('off', 'Offline — retrying');
+  setTimeout(wakeAPI, 30000);
+}
+
+// ========== INIT & AUTH ==========
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) { await loadUser(session.user); showApp(); } else showAuth();
+  sb.auth.onAuthStateChange(async (ev, sess) => {
+    if (ev === 'SIGNED_IN' && sess) { await loadUser(sess.user); showApp(); }
+    else if (ev === 'SIGNED_OUT') showAuth();
   });
   wakeAPI();
 }
 
-async function loadUser(u){
-  user=u;
-  const{data}=await sb.from('profiles').select('*').eq('id',u.id).single();
-  profile=data;
-  const name=profile?.full_name||u.email?.split('@')[0]||'User';
-  document.getElementById('unm').textContent=name;
-  document.getElementById('uav').textContent=name.slice(0,2).toUpperCase();
-  document.getElementById('utr').textContent=profile?.tier==='pro'?'Pro — Unlimited':'Free · 3 uploads/day';
-  document.getElementById('acct-name').value=name;
-  document.getElementById('acct-email').textContent=u.email||'';
+async function loadUser(u) {
+  user = u;
+  const { data } = await sb.from('profiles').select('*').eq('id', u.id).single();
+  profile = data;
+  const name = profile?.full_name || u.email?.split('@')[0] || 'User';
+  document.getElementById('unm').textContent = name;
+  document.getElementById('uav').textContent = name.slice(0,2).toUpperCase();
+  document.getElementById('utr').textContent = profile?.tier === 'pro' ? 'Pro — Unlimited' : 'Free · 3 uploads/day';
+  document.getElementById('acct-name').value = name;
+  document.getElementById('acct-email').textContent = u.email || '';
   updateFooter();
 }
+function showApp() { document.getElementById('auth').style.display = 'none'; document.getElementById('app').style.display = 'flex'; }
+function showAuth() { document.getElementById('auth').style.display = 'flex'; document.getElementById('app').style.display = 'none'; user = null; profile = null; docs = []; convId = null; docCount = 0; }
 
-function showApp(){document.getElementById('auth').style.display='none';document.getElementById('app').style.display='flex'}
-function showAuth(){document.getElementById('auth').style.display='flex';document.getElementById('app').style.display='none';user=null;profile=null;docs=[];convId=null;docCount=0}
+// ── AUTH UI ── (unchanged)
+function stab(t) { /* same as original */ document.querySelectorAll('.atab').forEach((el,i)=>el.classList.toggle('active',(i===0&&t==='in')||(i===1&&t==='up'))); document.getElementById('fin').style.display=t==='in'?'block':'none'; document.getElementById('fup').style.display=t==='up'?'block':'none'; document.getElementById('ae').style.display='none'; document.getElementById('am').style.display='none'; }
+function aerr(m) { const e=document.getElementById('ae'); e.textContent=m; e.style.display='block'; document.getElementById('am').style.display='none'; }
+function amsg(m) { const e=document.getElementById('am'); e.textContent=m; e.style.display='block'; document.getElementById('ae').style.display='none'; }
+function isDisp(email) { const d=(email.split('@')[1]||'').toLowerCase(); return BLOCKED.some(b=>d.includes(b)); }
+async function doIn() { const e=document.getElementById('ie').value.trim(), p=document.getElementById('ip').value; if(!e||!p){aerr('Please fill in all fields');return} const btn=document.getElementById('bin'); btn.disabled=true; btn.textContent='Signing in…'; const {error}=await sb.auth.signInWithPassword({email:e,password:p}); btn.disabled=false; btn.textContent='Sign in'; if(error)aerr(error.message); }
+async function doUp() { const n=document.getElementById('un').value.trim(), e=document.getElementById('ue').value.trim(), p=document.getElementById('up2').value; if(!n||!e||!p){aerr('Please fill in all fields');return} if(p.length<8){aerr('Password must be at least 8 characters');return} if(isDisp(e)){aerr('Please use a real email address');return} const btn=document.getElementById('bup'); btn.disabled=true; btn.textContent='Creating…'; const {error}=await sb.auth.signUp({email:e,password:p,options:{data:{full_name:n}}}); btn.disabled=false; btn.textContent='Create account'; if(error)aerr(error.message); else amsg('Check your email to confirm your account.'); }
+async function doGoogle() { const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin}}); if(error)aerr(error.message); }
+async function doOut() { await sb.auth.signOut(); docs=[]; docCount=0; showAuth(); toast('Signed out'); }
 
-// ── AUTH ────────────────────────────────────────────────────────────────────
-function stab(t){
-  document.querySelectorAll('.atab').forEach((el,i)=>el.classList.toggle('active',(i===0&&t==='in')||(i===1&&t==='up')));
-  document.getElementById('fin').style.display=t==='in'?'block':'none';
-  document.getElementById('fup').style.display=t==='up'?'block':'none';
-  document.getElementById('ae').style.display='none';document.getElementById('am').style.display='none';
-}
-function aerr(m){const e=document.getElementById('ae');e.textContent=m;e.style.display='block';document.getElementById('am').style.display='none'}
-function amsg(m){const e=document.getElementById('am');e.textContent=m;e.style.display='block';document.getElementById('ae').style.display='none'}
-function isDisp(email){const d=(email.split('@')[1]||'').toLowerCase();return BLOCKED.some(b=>d.includes(b))}
+// ── ACCOUNT ── (unchanged)
+function openAcct() { document.getElementById('am-modal').classList.add('open'); }
+function closeAcct() { document.getElementById('am-modal').classList.remove('open'); }
+async function saveName() { const n=document.getElementById('acct-name').value.trim(); if(!n||!user)return; await sb.from('profiles').update({full_name:n}).eq('id',user.id); document.getElementById('unm').textContent=n; document.getElementById('uav').textContent=n.slice(0,2).toUpperCase(); toast('Name saved'); }
+async function changePw() { const pw=document.getElementById('new-pw').value; if(pw.length<8){toast('Password must be at least 8 characters');return} const {error}=await sb.auth.updateUser({password:pw}); if(error)toast('Error: '+error.message); else{toast('Password updated'); document.getElementById('new-pw').value='';} }
+function goPro() { window.open('https://wnkia.lemonsqueezy.com/checkout','_blank'); }
 
-async function doIn(){
-  const e=document.getElementById('ie').value.trim(),p=document.getElementById('ip').value;
-  if(!e||!p){aerr('Please fill in all fields');return}
-  const btn=document.getElementById('bin');btn.disabled=true;btn.textContent='Signing in…';
-  const{error}=await sb.auth.signInWithPassword({email:e,password:p});
-  btn.disabled=false;btn.textContent='Sign in';
-  if(error)aerr(error.message);
-}
-async function doUp(){
-  const n=document.getElementById('un').value.trim(),e=document.getElementById('ue').value.trim(),p=document.getElementById('up2').value;
-  if(!n||!e||!p){aerr('Please fill in all fields');return}
-  if(p.length<8){aerr('Password must be at least 8 characters');return}
-  if(isDisp(e)){aerr('Please use a real email address');return}
-  const btn=document.getElementById('bup');btn.disabled=true;btn.textContent='Creating…';
-  const{error}=await sb.auth.signUp({email:e,password:p,options:{data:{full_name:n}}});
-  btn.disabled=false;btn.textContent='Create account';
-  if(error)aerr(error.message);else amsg('Check your email to confirm your account.');
-}
-async function doGoogle(){const{error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin}});if(error)aerr(error.message)}
-async function doOut(){await sb.auth.signOut();docs=[];docCount=0;showAuth();toast('Signed out')}
+// ── UPLOAD LIMITS ── (unchanged)
+async function updateFooter() { if(!user)return; const today=new Date().toISOString().split('T')[0]; const {count}=await sb.from('uploads').select('*',{count:'exact',head:true}).eq('user_id',user.id).gte('uploaded_at',today+'T00:00:00Z'); const used=count||0; document.getElementById('fc').textContent=used; document.getElementById('fl').textContent=profile?.tier==='pro'?'∞':FREE_LIMIT; }
+async function checkLimit(n) { if(profile?.tier==='pro')return true; const today=new Date().toISOString().split('T')[0]; const {count}=await sb.from('uploads').select('*',{count:'exact',head:true}).eq('user_id',user.id).gte('uploaded_at',today+'T00:00:00Z'); const used=count||0; if(used+n>FREE_LIMIT){ document.getElementById('uwn').textContent=`You've used ${used}/${FREE_LIMIT} free uploads today. Upgrade to Pro for unlimited.`; document.getElementById('uwn').style.display='block'; return false; } document.getElementById('uwn').style.display='none'; return true; }
+async function logUpload(name,size) { if(!user)return; await sb.from('uploads').insert({user_id:user.id,filename:name,file_size:size}); updateFooter(); }
 
-// ── ACCOUNT ─────────────────────────────────────────────────────────────────
-function openAcct(){document.getElementById('am-modal').classList.add('open')}
-function closeAcct(){document.getElementById('am-modal').classList.remove('open')}
-async function saveName(){
-  const n=document.getElementById('acct-name').value.trim();
-  if(!n||!user)return;
-  await sb.from('profiles').update({full_name:n}).eq('id',user.id);
-  document.getElementById('unm').textContent=n;
-  document.getElementById('uav').textContent=n.slice(0,2).toUpperCase();
-  toast('Name saved');
-}
-async function changePw(){
-  const pw=document.getElementById('new-pw').value;
-  if(pw.length<8){toast('Password must be at least 8 characters');return}
-  const{error}=await sb.auth.updateUser({password:pw});
-  if(error)toast('Error: '+error.message);else{toast('Password updated');document.getElementById('new-pw').value=''}
-}
-function goPro(){window.open('https://wnkia.lemonsqueezy.com/checkout','_blank')}
+// ── UPLOAD (with JWT) ──
+function openUp() { document.getElementById('uov').classList.add('open'); }
+function closeUp() { document.getElementById('uov').classList.remove('open'); document.getElementById('upg').style.display='none'; document.getElementById('ufl').style.width='0%'; document.getElementById('ust').textContent=''; document.getElementById('uwn').style.display='none'; }
 
-// ── UPLOAD LIMITS ─────────────────────────────────────────────────────────
-async function updateFooter(){
-  if(!user)return;
-  const today=new Date().toISOString().split('T')[0];
-  const{count}=await sb.from('uploads').select('*',{count:'exact',head:true}).eq('user_id',user.id).gte('uploaded_at',today+'T00:00:00Z');
-  const used=count||0;
-  document.getElementById('fc').textContent=used;
-  document.getElementById('fl').textContent=profile?.tier==='pro'?'∞':FREE_LIMIT;
-}
-async function checkLimit(n){
-  if(profile?.tier==='pro')return true;
-  const today=new Date().toISOString().split('T')[0];
-  const{count}=await sb.from('uploads').select('*',{count:'exact',head:true}).eq('user_id',user.id).gte('uploaded_at',today+'T00:00:00Z');
-  const used=count||0;
-  if(used+n>FREE_LIMIT){
-    document.getElementById('uwn').textContent=`You've used ${used}/${FREE_LIMIT} free uploads today. Upgrade to Pro for unlimited.`;
-    document.getElementById('uwn').style.display='block';
-    return false;
-  }
-  document.getElementById('uwn').style.display='none';return true;
-}
-async function logUpload(name,size){
-  if(!user)return;
-  await sb.from('uploads').insert({user_id:user.id,filename:name,file_size:size});
-  updateFooter();
-}
+async function handleFiles(files) {
+  const allowed = ['pdf','docx','doc','txt','csv','xlsx','pptx','html','epub','rtf','md'];
+  const valid = files.filter(f => allowed.includes(f.name.split('.').pop().toLowerCase()));
+  if (!valid.length) { toast('No supported file types selected'); return; }
+  if (user && !await checkLimit(valid.length)) return;
 
-// ── UPLOAD ──────────────────────────────────────────────────────────────────
-function openUp(){document.getElementById('uov').classList.add('open')}
-function closeUp(){
-  document.getElementById('uov').classList.remove('open');
-  document.getElementById('upg').style.display='none';
-  document.getElementById('ufl').style.width='0%';
-  document.getElementById('ust').textContent='';
-  document.getElementById('uwn').style.display='none';
-}
-
-async function handleFiles(files){
-  const allowed=['pdf','docx','doc','txt','csv','xlsx','pptx','html','epub','rtf','md'];
-  const valid=files.filter(f=>allowed.includes(f.name.split('.').pop().toLowerCase()));
-  if(!valid.length){toast('No supported file types selected');return}
-  if(user&&!await checkLimit(valid.length))return;
-
-  const prg=document.getElementById('upg'),fl=document.getElementById('ufl'),st=document.getElementById('ust');
+  const prg = document.getElementById('upg'), fl = document.getElementById('ufl'), st = document.getElementById('ust');
   document.getElementById('uov').classList.add('open');
-  prg.style.display='block';
+  prg.style.display = 'block';
 
-  if(!apiReady){
-    fl.style.width='10%';st.textContent='Waiting for backend to start up…';
-    let w=0;while(!apiReady&&w<90){await new Promise(r=>setTimeout(r,2000));w+=2;st.textContent=`Backend starting — ${w}s elapsed. Please wait…`}
-    if(!apiReady){st.textContent='Backend not responding. Please wait and try again.';return}
+  if (!apiReady) {
+    fl.style.width = '10%'; st.textContent = 'Waiting for backend to start up…';
+    let w = 0; while (!apiReady && w < 90) { await new Promise(r => setTimeout(r, 2000)); w += 2; st.textContent = `Backend starting — ${w}s elapsed. Please wait…`; }
+    if (!apiReady) { st.textContent = 'Backend not responding. Please wait and try again.'; return; }
   }
 
-  fl.style.width='20%';st.textContent=`Uploading ${valid.length} file${valid.length>1?'s':''}…`;
+  fl.style.width = '20%'; st.textContent = `Uploading ${valid.length} file${valid.length>1?'s':''}…`;
+  try {
+    const fd = new FormData();
+    for (const f of valid) fd.append('files', f, f.name);
+    fl.style.width = '45%'; st.textContent = 'Processing, generating summaries, and indexing…';
 
-  try{
-    const fd=new FormData();
-    for(const f of valid)fd.append('files',f,f.name);
-    fl.style.width='45%';st.textContent='Processing, generating summaries, and indexing…';
+    const headers = await apiHeaders();
+    const res = await fetch(`${API_BASE}/upload`, { method: 'POST', headers, body: fd });
+    fl.style.width = '90%';
+    if (!res.ok) { let m = `Error ${res.status}`; try { const e = await res.json(); m = e.detail || m; } catch(x) {} throw new Error(m); }
 
-    const res=await fetch(`${API}/upload`,{method:'POST',headers:apiH(),body:fd});
-    fl.style.width='90%';
-    if(!res.ok){let m=`Error ${res.status}`;try{const e=await res.json();m=e.detail||m}catch(x){}throw new Error(m)}
+    const data = await res.json();
+    fl.style.width = '100%';
+    st.textContent = `✓ ${data.files_uploaded} file${valid.length>1?'s':''} indexed — ${data.chunks_created} passages ready`;
 
-    const data=await res.json();
-    fl.style.width='100%';
-    st.textContent=`✓ ${data.files_uploaded} file${valid.length>1?'s':''} indexed — ${data.chunks_created} passages ready`;
-
-    for(const f of valid){
-      docs.push({name:f.name,size:f.size,ext:f.name.split('.').pop().toUpperCase().slice(0,4)});
-      if(user)await logUpload(f.name,f.size);
+    for (const f of valid) {
+      docs.push({ name: f.name, size: f.size, ext: f.name.split('.').pop().toUpperCase().slice(0,4) });
+      if (user) await logUpload(f.name, f.size);
     }
-    docCount=docs.length;
+    docCount = docs.length;
     renderDocs();
     updateCompareBtn();
-    setTimeout(closeUp,1500);
-
-  }catch(e){
-    fl.style.width='0%';
-    let msg=e.message||'Unknown error';
-    if(msg.includes('Failed to fetch')||msg.includes('NetworkError'))msg='Cannot reach backend — wait 30 seconds and try again.';
-    st.textContent='Error: '+msg;
+    setTimeout(closeUp, 1500);
+  } catch (e) {
+    fl.style.width = '0%';
+    let msg = e.message || 'Unknown error';
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) msg = 'Cannot reach backend — wait 30 seconds and try again.';
+    st.textContent = 'Error: ' + msg;
   }
 }
 
-function renderDocs(){
-  const el=document.getElementById('docs');
-  if(!docs.length){el.innerHTML='<div class="nodoc">No sources yet.<br>Add files to get started.</div>';return}
-  el.innerHTML=docs.map((d,i)=>
-    `<div class="doc${i===docs.length-1?' active':''}" onclick="setAct(${i})">
-      <div class="dex">${esc(d.ext)}</div>
-      <div class="dnm" title="${esc(d.name)}">${esc(d.name)}</div>
-    </div>`
-  ).join('');
-}
-function setAct(i){document.querySelectorAll('.doc').forEach((el,j)=>el.classList.toggle('active',j===i))}
+function renderDocs() { /* unchanged */ const el=document.getElementById('docs'); if(!docs.length){el.innerHTML='<div class="nodoc">No sources yet.<br>Add files to get started.</div>';return} el.innerHTML=docs.map((d,i)=>`<div class="doc${i===docs.length-1?' active':''}" onclick="setAct(${i})"><div class="dex">${esc(d.ext)}</div><div class="dnm" title="${esc(d.name)}">${esc(d.name)}</div></div>`).join(''); }
+function setAct(i){document.querySelectorAll('.doc').forEach((el,j)=>el.classList.toggle('active',j===i));}
+function updateCompareBtn(){ const btn=document.getElementById('qa-compare'); if(docCount>=2)btn.style.display='flex'; else btn.style.display='none'; }
 
-function updateCompareBtn(){
-  const btn=document.getElementById('qa-compare');
-  if(docCount>=2)btn.style.display='flex';
-  else btn.style.display='none';
-}
+// ── LENS ──
+function setLens(l, btn) { lens = l; document.querySelectorAll('.lbt').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); }
 
-// ── LENS ────────────────────────────────────────────────────────────────────
-function setLens(l,btn){
-  lens=l;
-  document.querySelectorAll('.lbt').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
-// ── QUICK ACTIONS ───────────────────────────────────────────────────────────
-async function runQA(action){
-  const btn=document.getElementById(`qa-${action}`);
-  if(btn){btn.classList.add('loading')}
-
-  const stream=document.getElementById('stream');
+// ── QUICK ACTIONS (with JWT) ──
+async function runQA(action) {
+  const btn = document.getElementById(`qa-${action}`);
+  if (btn) btn.classList.add('loading');
+  const stream = document.getElementById('stream');
   document.getElementById('empty')?.remove();
-
-  const lid='l'+Date.now();
-  stream.insertAdjacentHTML('beforeend',
-    `<div class="loading" id="${lid}">
-      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-      <div class="ltx">Running ${QA_LABELS[action]||action}…</div>
-    </div>`);
-  stream.scrollTop=stream.scrollHeight;
-
-  try{
-    if(!apiReady){
-      const ltx=document.querySelector(`#${lid} .ltx`);
-      if(ltx)ltx.textContent='Waiting for backend…';
-      let w=0;while(!apiReady&&w<90){await new Promise(r=>setTimeout(r,3000));w+=3}
+  const lid = 'l' + Date.now();
+  stream.insertAdjacentHTML('beforeend', `<div class="loading" id="${lid}"><div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><div class="ltx">Running ${QA_LABELS[action]||action}…</div></div>`);
+  stream.scrollTop = stream.scrollHeight;
+  try {
+    if (!apiReady) {
+      const ltx = document.querySelector(`#${lid} .ltx`);
+      if (ltx) ltx.textContent = 'Waiting for backend…';
+      let w = 0; while (!apiReady && w < 90) { await new Promise(r => setTimeout(r, 3000)); w += 3; }
     }
-
-    const res=await fetch(`${API}/quick`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json',...apiH()},
-      body:JSON.stringify({action,mode:lens,top_k:12})
+    const headers = await apiHeaders();
+    const res = await fetch(`${API_BASE}/quick`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ action, mode: lens, top_k: 12 })
     });
-    const data=await res.json();
+    const data = await res.json();
     document.getElementById(lid)?.remove();
-    if(!res.ok)throw new Error(data.detail||`Error ${res.status}`);
-
-    const card=document.createElement('div');
-    card.className=`card qa-card ${LCLASS[lens]||''}`;
-    card.innerHTML=`
-      <div class="cq">
-        <span class="cq-badge">${QA_LABELS[action]||action}</span>
-        <span style="color:var(--fa)">${LNAMES[lens]} lens</span>
-      </div>
-      <div class="cbody">${fmtBody(data.answer)}</div>
-      <div class="cft">
-        <div class="csrc">
-          <span class="icon">bookmark</span>
-          ${data.source?esc(data.source.slice(0,60)):(docs.length?'Document analysis':'')}
-        </div>
-        <div class="cmeta">
-          <span class="cpill">${LNAMES[lens]}</span>
-          ${data.chunks_in_context>0?`<span class="cpill">${data.chunks_in_context} passages</span>`:''}
-        </div>
-      </div>`;
+    if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
+    const card = document.createElement('div');
+    card.className = `card qa-card ${LCLASS[lens]||''}`;
+    card.innerHTML = `<div class="cq"><span class="cq-badge">${QA_LABELS[action]||action}</span><span style="color:var(--fa)">${LNAMES[lens]} lens</span></div><div class="cbody">${fmtBody(data.answer)}</div><div class="cft"><div class="csrc"><span class="icon">bookmark</span>${data.source?esc(data.source.slice(0,60)):(docs.length?'Document analysis':'')}</div><div class="cmeta"><span class="cpill">${LNAMES[lens]}</span>${data.chunks_in_context>0?`<span class="cpill">${data.chunks_in_context} passages</span>`:''}</div></div>`;
     stream.appendChild(card);
-    card.scrollIntoView({behavior:'smooth',block:'start'});
-    showEvidence(data.source,data.answer,data.documents_used);
-
-  }catch(e){
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showEvidence(data.source, data.answer, data.documents_used);
+  } catch (e) {
     document.getElementById(lid)?.remove();
-    let msg=e.message||'Unknown error';
-    if(msg.includes('Failed to fetch'))msg='Cannot reach backend. Check your connection.';
-    stream.insertAdjacentHTML('beforeend',
-      `<div class="card"><div style="color:var(--red);font-size:13px;">⚠ ${esc(msg)}</div></div>`);
-  }finally{
-    if(btn)btn.classList.remove('loading');
+    let msg = e.message || 'Unknown error';
+    if (msg.includes('Failed to fetch')) msg = 'Cannot reach backend. Check your connection.';
+    stream.insertAdjacentHTML('beforeend', `<div class="card"><div style="color:var(--red);font-size:13px;">⚠ ${esc(msg)}</div></div>`);
+  } finally {
+    if (btn) btn.classList.remove('loading');
   }
 }
 
-// ── QUERY ───────────────────────────────────────────────────────────────────
-function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}
-function autoR(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px'}
+// ── QUERY (with JWT) ──
+function handleKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }
+function autoR(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }
 
-async function send(){
-  const inp=document.getElementById('qi');
-  const q=inp.value.trim();
-  if(!q)return;
-  inp.value='';inp.style.height='auto';
-
-  const stream=document.getElementById('stream');
+async function send() {
+  const inp = document.getElementById('qi');
+  const q = inp.value.trim();
+  if (!q) return;
+  inp.value = ''; inp.style.height = 'auto';
+  const stream = document.getElementById('stream');
   document.getElementById('empty')?.remove();
-
-  if(user&&!convId){
-    const{data}=await sb.from('conversations').insert({user_id:user.id,title:q.slice(0,60),lens}).select().single();
-    convId=data?.id||null;
+  if (user && !convId) {
+    const { data } = await sb.from('conversations').insert({ user_id: user.id, title: q.slice(0,60), lens }).select().single();
+    convId = data?.id || null;
   }
-  if(user&&convId)sb.from('messages').insert({conversation_id:convId,role:'user',content:q,chunks_used:0});
-
-  const lid='l'+Date.now();
-  stream.insertAdjacentHTML('beforeend',
-    `<div class="loading" id="${lid}">
-      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-      <div class="ltx">Searching with ${LNAMES[lens]} lens…</div>
-    </div>`);
-  stream.scrollTop=stream.scrollHeight;
-
-  try{
-    if(!apiReady){
-      const ltx=document.querySelector(`#${lid} .ltx`);
-      if(ltx)ltx.textContent='Waiting for backend to wake up…';
-      let w=0;while(!apiReady&&w<90){await new Promise(r=>setTimeout(r,3000));w+=3}
+  if (user && convId) sb.from('messages').insert({ conversation_id: convId, role: 'user', content: q, chunks_used: 0 });
+  const lid = 'l' + Date.now();
+  stream.insertAdjacentHTML('beforeend', `<div class="loading" id="${lid}"><div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><div class="ltx">Searching with ${LNAMES[lens]} lens…</div></div>`);
+  stream.scrollTop = stream.scrollHeight;
+  try {
+    if (!apiReady) {
+      const ltx = document.querySelector(`#${lid} .ltx`);
+      if (ltx) ltx.textContent = 'Waiting for backend to wake up…';
+      let w = 0; while (!apiReady && w < 90) { await new Promise(r => setTimeout(r, 3000)); w += 3; }
     }
-
-    const res=await fetch(`${API}/query`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json',...apiH()},
-      body:JSON.stringify({query:q,mode:lens,top_k:docs.length>0?8:0})
+    const headers = await apiHeaders();
+    const res = await fetch(`${API_BASE}/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ query: q, mode: lens, top_k: docs.length > 0 ? 8 : 0 })
     });
-    const data=await res.json();
+    const data = await res.json();
     document.getElementById(lid)?.remove();
-    if(!res.ok)throw new Error(data.detail||`Error ${res.status}`);
-
-    if(user&&convId)sb.from('messages').insert({conversation_id:convId,role:'assistant',content:data.answer,source:data.source||'',chunks_used:data.chunks_in_context||0});
-
-    const card=document.createElement('div');
-    card.className=`card ${LCLASS[lens]||''}`;
-    card.innerHTML=`
-      <div class="cq">"${esc(q)}"</div>
-      <div class="clbl">Insight · ${LNAMES[lens]} Lens</div>
-      <div class="cbody">${fmtBody(data.answer)}</div>
-      <div class="cft">
-        <div class="csrc">
-          <span class="icon">bookmark</span>
-          ${data.source?esc(data.source.slice(0,60)):(docs.length?'Document analysis':'General knowledge')}
-        </div>
-        <div class="cmeta">
-          <span class="cpill">${LNAMES[lens]}</span>
-          ${(data.chunks_in_context||0)>0?`<span class="cpill">${data.chunks_in_context} passages</span>`:''}
-        </div>
-      </div>`;
+    if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
+    if (user && convId) sb.from('messages').insert({ conversation_id: convId, role: 'assistant', content: data.answer, source: data.source || '', chunks_used: data.chunks_in_context || 0 });
+    const card = document.createElement('div');
+    card.className = `card ${LCLASS[lens]||''}`;
+    card.innerHTML = `<div class="cq">"${esc(q)}"</div><div class="clbl">Insight · ${LNAMES[lens]} Lens</div><div class="cbody">${fmtBody(data.answer)}</div><div class="cft"><div class="csrc"><span class="icon">bookmark</span>${data.source?esc(data.source.slice(0,60)):(docs.length?'Document analysis':'General knowledge')}</div><div class="cmeta"><span class="cpill">${LNAMES[lens]}</span>${(data.chunks_in_context||0)>0?`<span class="cpill">${data.chunks_in_context} passages</span>`:''}</div></div>`;
     stream.appendChild(card);
-    card.scrollIntoView({behavior:'smooth',block:'start'});
-    showEvidence(data.source,data.answer,data.documents_used);
-
-  }catch(e){
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showEvidence(data.source, data.answer, data.documents_used);
+  } catch (e) {
     document.getElementById(lid)?.remove();
-    let msg=e.message||'Unknown error';
-    if(msg.includes('Failed to fetch'))msg='Cannot reach backend. Check your connection and try again.';
-    const retry=`<button onclick="document.getElementById('qi').value=${JSON.stringify(q)};send()" style="margin-top:8px;padding:6px 14px;background:var(--g);color:#e4fdf6;border:none;border-radius:4px;cursor:pointer;font-size:12px">Try again</button>`;
-    stream.insertAdjacentHTML('beforeend',
-      `<div class="card"><div style="color:var(--red);font-size:13px;">⚠ ${esc(msg)}</div>${retry}</div>`);
+    let msg = e.message || 'Unknown error';
+    if (msg.includes('Failed to fetch')) msg = 'Cannot reach backend. Check your connection and try again.';
+    const retry = `<button onclick="document.getElementById('qi').value=${JSON.stringify(q)};send()" style="margin-top:8px;padding:6px 14px;background:var(--g);color:#e4fdf6;border:none;border-radius:4px;cursor:pointer;font-size:12px">Try again</button>`;
+    stream.insertAdjacentHTML('beforeend', `<div class="card"><div style="color:var(--red);font-size:13px;">⚠ ${esc(msg)}</div>${retry}</div>`);
   }
 }
 
-function showEvidence(src,answer,docsUsed){
-  document.getElementById('eem').style.display='none';
-  const items=document.getElementById('eit');
-  const snip=(answer||'').replace(/<[^>]+>/g,'').slice(0,200)+'…';
-  const docName=src?src.split('|')[0].trim():((docsUsed&&docsUsed[0])||docs[0]?.name||'Document');
-  items.insertAdjacentHTML('afterbegin',
-    `<div class="ei">
-      <div class="edoc">${esc(docName.slice(0,40))}</div>
-      <div class="esnip">${esc(snip)}</div>
-      <div class="eref">${src?esc(src.split('|').slice(1).join('|').trim()||src):'Extracted passage'}</div>
-    </div>`);
+function showEvidence(src, answer, docsUsed) {
+  document.getElementById('eem').style.display = 'none';
+  const items = document.getElementById('eit');
+  const snip = (answer || '').replace(/<[^>]+>/g, '').slice(0,200) + '…';
+  const docName = src ? src.split('|')[0].trim() : ((docsUsed && docsUsed[0]) || docs[0]?.name || 'Document');
+  items.insertAdjacentHTML('afterbegin', `<div class="ei"><div class="edoc">${esc(docName.slice(0,40))}</div><div class="esnip">${esc(snip)}</div><div class="eref">${src?esc(src.split('|').slice(1).join('|').trim()||src):'Extracted passage'}</div></div>`);
 }
 
-// ── FORMAT ──────────────────────────────────────────────────────────────────
-function fmtBody(text){
-  if(!text)return'';
-  let h=esc(text);
-  h=h.replace(/\*\*Direct Answer\*\*[\n\r]+([\s\S]*?)(?=\n\*\*|\n\n\*\*|$)/,(m,c)=>`<div class="pq">${c.trim()}</div>`);
-  h=h.replace(/(\|[^\n]+\|\n)((\|[-: |]+\|\n)?)(\|[^\n]+\|\n?)+/g,m=>{
-    const lines=m.trim().split('\n').filter(l=>l.trim()&&!l.match(/^\|[-: |]+\|$/));
-    if(lines.length<2)return m;
-    const parse=l=>l.split('|').filter((_,i,a)=>i>0&&i<a.length-1).map(c=>c.trim());
-    let t='<table><thead><tr>'+parse(lines[0]).map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
-    for(let i=1;i<lines.length;i++)t+='<tr>'+parse(lines[i]).map(c=>`<td>${c}</td>`).join('')+'</tr>';
-    return t+'</tbody></table>';
+// ── FORMAT ── (unchanged)
+function fmtBody(text) {
+  if (!text) return '';
+  let h = esc(text);
+  h = h.replace(/\*\*Direct Answer\*\*[\n\r]+([\s\S]*?)(?=\n\*\*|\n\n\*\*|$)/, (m,c)=>`<div class="pq">${c.trim()}</div>`);
+  h = h.replace(/(\|[^\n]+\|\n)((\|[-: |]+\|\n)?)(\|[^\n]+\|\n?)+/g, m => {
+    const lines = m.trim().split('\n').filter(l=>l.trim()&&!l.match(/^\|[-: |]+\|$/));
+    if (lines.length < 2) return m;
+    const parse = l => l.split('|').filter((_,i,a)=>i>0&&i<a.length-1).map(c=>c.trim());
+    let t = '<table><thead><tr>' + parse(lines[0]).map(c=>`<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+    for (let i=1; i<lines.length; i++) t += '<tr>' + parse(lines[i]).map(c=>`<td>${c}</td>`).join('') + '</tr>';
+    return t + '</tbody></table>';
   });
-  h=h.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>');
-  h=h.replace(/\n\n+/g,'</p><p style="margin-top:10px;">');
-  h=h.replace(/\n/g,'<br>');
-  return'<p>'+h+'</p>';
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\n\n+/g, '</p><p style="margin-top:10px;">');
+  h = h.replace(/\n/g, '<br>');
+  return '<p>' + h + '</p>';
 }
-function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function esc(s) { if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+// ── RESET BUTTON (new) ──
+async function resetUser() {
+  if (!confirm("Delete all your documents and data? This cannot be undone.")) return;
+  try {
+    const headers = await apiHeaders();
+    const res = await fetch(`${API_BASE}/reset`, { method: 'DELETE', headers });
+    if (res.ok) {
+      toast("All data cleared.");
+      docs = [];
+      docCount = 0;
+      renderDocs();
+      document.getElementById('stream').innerHTML = '<div class="empty" id="empty"><span class="icon" style="font-size:36px;color:var(--gl)">menu_book</span><div class="et">Ready when you are</div><div class="es">Add a document and click any quick action above — or type your question</div><div class="bq">The answers were always there. Now you can find them.</div></div>';
+      document.getElementById('eit').innerHTML = '';
+      document.getElementById('eem').style.display = 'block';
+    } else {
+      toast("Failed to reset: " + (await res.text()));
+    }
+  } catch(e) {
+    toast("Error: " + e.message);
+  }
+}
+
+// Start the app
 init();
 </script>
 </body>
