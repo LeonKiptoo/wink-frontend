@@ -626,7 +626,7 @@ async function runQA(action) {
     const res = await fetch(`${API_BASE}/quick`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify({ action, mode: lens, top_k: 5 })
+      body: JSON.stringify({ action, mode: lens, top_k: 12 })
     });
     const data = await res.json();
     document.getElementById(lid)?.remove();
