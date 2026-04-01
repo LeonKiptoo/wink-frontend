@@ -433,6 +433,8 @@ const API_BASE = window.ENV_API_BASE || 'https://wnkia-backend-production.up.rai
 const SB_URL = 'https://ycznroxjicvberxeacba.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljem5yb3hqaWN2YmVyeGVhY2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NDYyOTUsImV4cCI6MjA5MDIyMjI5NX0.bqHauVDwrzgGxZSYdiA9S2LQgAjdV7BhAv6zdRMTSC4';
 const FREE_LIMIT = 3;
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const BLOCKED = ['mailinator','guerrillamail','tempmail','throwaway','yopmail','10minutemail','trashmail','disposablemail','sharklasers','mailnull'];
 
 // Quick‑action labels (unchanged)
@@ -470,6 +472,34 @@ async function apiHeaders() {
   return headers;
 }
 
+function normaliseDocs(list = []) {
+  return list.map(doc => ({
+    name: doc.filename,
+    size: doc.size_bytes || 0,
+    ext: String(doc.extension || '').replace(/^\./, '').toUpperCase().slice(0, 4),
+    indexed: !!doc.indexed,
+    summary: doc.summary || ''
+  }));
+}
+
+async function refreshDocuments() {
+  if (!user) return;
+  try {
+    const headers = await apiHeaders();
+    const res = await fetch(`${API_BASE}/documents`, { headers });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const data = await res.json();
+    docs = normaliseDocs(data.documents || []);
+    docCount = typeof data.indexed_count === 'number'
+      ? data.indexed_count
+      : docs.filter(d => d.indexed).length;
+    renderDocs();
+    updateCompareBtn();
+  } catch (e) {
+    console.warn('Unable to refresh documents', e);
+  }
+}
+
 // ========== WAKE API (checks health, not root) ==========
 async function wakeAPI() {
   if (waking) return;
@@ -485,6 +515,7 @@ async function wakeAPI() {
         waking = false;
         document.getElementById('wb').classList.remove('show');
         setSt('on', 'Online');
+        if (user) refreshDocuments();
         return;
       }
     } catch (e) {}
@@ -519,7 +550,7 @@ async function loadUser(u) {
   document.getElementById('utr').textContent = profile?.tier === 'pro' ? 'Pro — Unlimited' : 'Free · 3 uploads/day';
   document.getElementById('acct-name').value = name;
   document.getElementById('acct-email').textContent = u.email || '';
-  updateFooter();
+  await Promise.all([updateFooter(), refreshDocuments()]);
 }
 function showApp() { document.getElementById('auth').style.display = 'none'; document.getElementById('app').style.display = 'flex'; }
 function showAuth() { document.getElementById('auth').style.display = 'flex'; document.getElementById('app').style.display = 'none'; user = null; profile = null; docs = []; convId = null; docCount = 0; }
@@ -557,7 +588,20 @@ async function handleFiles(files) {
   const allowed = ['pdf','docx','doc','txt','csv','xlsx','pptx','html','epub','rtf','md'];
   const valid = files.filter(f => allowed.includes(f.name.split('.').pop().toLowerCase()));
   if (!valid.length) { toast('No supported file types selected'); return; }
-  if (user && !await checkLimit(valid.length)) return;
+  const tooLarge = valid.filter(f => f.size > MAX_FILE_SIZE_BYTES);
+  const ready = valid.filter(f => f.size <= MAX_FILE_SIZE_BYTES);
+  if (tooLarge.length) {
+    const names = tooLarge.slice(0, 3).map(f => f.name).join(', ');
+    document.getElementById('uwn').textContent = `Each file must be ${MAX_FILE_SIZE_MB} MB or smaller. Too large: ${names}${tooLarge.length > 3 ? ', ...' : ''}`;
+    document.getElementById('uwn').style.display = 'block';
+  } else {
+    document.getElementById('uwn').style.display = 'none';
+  }
+  if (!ready.length) {
+    toast(`Each file must be ${MAX_FILE_SIZE_MB} MB or smaller`);
+    return;
+  }
+  if (user && !await checkLimit(ready.length)) return;
 
   const prg = document.getElementById('upg'), fl = document.getElementById('ufl'), st = document.getElementById('ust');
   document.getElementById('uov').classList.add('open');
@@ -569,10 +613,10 @@ async function handleFiles(files) {
     if (!apiReady) { st.textContent = 'Backend not responding. Please wait and try again.'; return; }
   }
 
-  fl.style.width = '20%'; st.textContent = `Uploading ${valid.length} file${valid.length>1?'s':''}…`;
+  fl.style.width = '20%'; st.textContent = `Uploading ${ready.length} file${ready.length>1?'s':''}…`;
   try {
     const fd = new FormData();
-    for (const f of valid) fd.append('files', f, f.name);
+    for (const f of ready) fd.append('files', f, f.name);
     fl.style.width = '45%'; st.textContent = 'Processing, generating summaries, and indexing…';
 
     const headers = await apiHeaders();
@@ -582,15 +626,10 @@ async function handleFiles(files) {
 
     const data = await res.json();
     fl.style.width = '100%';
-    st.textContent = `✓ ${data.files_uploaded} file${valid.length>1?'s':''} indexed — ${data.chunks_created} passages ready`;
+    st.textContent = `✓ ${data.files_uploaded} file${data.files_uploaded>1?'s':''} indexed — ${data.chunks_created} passages ready`;
 
-    for (const f of valid) {
-      docs.push({ name: f.name, size: f.size, ext: f.name.split('.').pop().toUpperCase().slice(0,4) });
-    }
-    docCount = docs.length;
-    renderDocs();
-    updateCompareBtn();
-    if (user) updateFooter(); // refresh upload count from backend logs
+    await refreshDocuments();
+    if (user) await updateFooter(); // refresh upload count from backend logs
     setTimeout(closeUp, 1500);
   } catch (e) {
     fl.style.width = '0%';
@@ -676,7 +715,7 @@ async function send() {
     const res = await fetch(`${API_BASE}/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify({ query: q, mode: lens, top_k: docs.length > 0 ? 8 : 0 })
+      body: JSON.stringify({ query: q, mode: lens, top_k: 8 })
     });
     const data = await res.json();
     document.getElementById(lid)?.remove();
@@ -736,6 +775,9 @@ async function resetUser() {
       docs = [];
       docCount = 0;
       renderDocs();
+      updateCompareBtn();
+      if (user) await updateFooter();
+      convId = null;
       document.getElementById('stream').innerHTML = '<div class="empty" id="empty"><span class="icon" style="font-size:36px;color:var(--gl)">menu_book</span><div class="et">Ready when you are</div><div class="es">Add a document and click any quick action above — or type your question</div><div class="bq">The answers were always there. Now you can find them.</div></div>';
       document.getElementById('eit').innerHTML = '';
       document.getElementById('eem').style.display = 'block';
