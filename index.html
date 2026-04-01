@@ -277,7 +277,7 @@ hr.md{border:none;border-top:1px solid var(--bd);margin:18px 0}
     <div class="brand"><div class="bn">Wink</div><div class="bt">by Wnkia</div></div>
     <button class="addbtn" onclick="openUp()">
       <span class="icon">upload_file</span> Add sources
-      <input type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md" onchange="handleFiles(Array.from(this.files))"/>
+      <input type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md,.html" onchange="handleFiles(Array.from(this.files))"/>
     </button>
     <div class="dl">My Sources</div>
     <div class="docs" id="docs"><div class="nodoc" id="nodoc">No sources yet.<br>Add files to get started.</div></div>
@@ -384,9 +384,9 @@ hr.md{border:none;border-top:1px solid var(--bd);margin:18px 0}
   <div class="ubox">
     <span class="icon" style="font-size:32px;color:var(--g);display:block;margin-bottom:12px">upload_file</span>
     <div class="utit">Add your sources</div>
-    <div class="usub">PDF · DOCX · TXT · XLSX · EPUB · CSV · PPTX</div>
+    <div class="usub">PDF · DOCX · DOC · TXT · CSV · XLSX · PPTX · EPUB · RTF · MD · HTML</div>
     <div class="uwn" id="uwn"></div>
-    <label class="ulbl">Choose files<input type="file" id="oi" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md" onchange="handleFiles(Array.from(this.files))"/></label>
+    <label class="ulbl">Choose files<input type="file" id="oi" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md,.html" onchange="handleFiles(Array.from(this.files))"/></label>
     <div class="upg" id="upg"><div class="ufl" id="ufl"></div></div>
     <div class="ust" id="ust"></div>
     <button class="ucn" onclick="closeUp()">Cancel</button>
@@ -544,7 +544,10 @@ function goPro() { window.open('https://wnkia.lemonsqueezy.com/checkout','_blank
 // ── UPLOAD LIMITS ── (unchanged)
 async function updateFooter() { if(!user)return; const today=new Date().toISOString().split('T')[0]; const {count}=await sb.from('uploads').select('*',{count:'exact',head:true}).eq('user_id',user.id).gte('uploaded_at',today+'T00:00:00Z'); const used=count||0; document.getElementById('fc').textContent=used; document.getElementById('fl').textContent=profile?.tier==='pro'?'∞':FREE_LIMIT; }
 async function checkLimit(n) { if(profile?.tier==='pro')return true; const today=new Date().toISOString().split('T')[0]; const {count}=await sb.from('uploads').select('*',{count:'exact',head:true}).eq('user_id',user.id).gte('uploaded_at',today+'T00:00:00Z'); const used=count||0; if(used+n>FREE_LIMIT){ document.getElementById('uwn').textContent=`You've used ${used}/${FREE_LIMIT} free uploads today. Upgrade to Pro for unlimited.`; document.getElementById('uwn').style.display='block'; return false; } document.getElementById('uwn').style.display='none'; return true; }
-async function logUpload(name,size) { if(!user)return; await sb.from('uploads').insert({user_id:user.id,filename:name,file_size:size}); updateFooter(); }
+// logUpload() removed — the backend /upload endpoint logs to Supabase via
+// the service-role key (upload_limits.py::log_upload). Calling this function
+// from the client caused every upload to be counted twice, halving the
+// effective free-tier limit. updateFooter() is called explicitly after upload.
 
 // ── UPLOAD (with JWT) ──
 function openUp() { document.getElementById('uov').classList.add('open'); }
@@ -583,11 +586,11 @@ async function handleFiles(files) {
 
     for (const f of valid) {
       docs.push({ name: f.name, size: f.size, ext: f.name.split('.').pop().toUpperCase().slice(0,4) });
-      if (user) await logUpload(f.name, f.size);
     }
     docCount = docs.length;
     renderDocs();
     updateCompareBtn();
+    if (user) updateFooter(); // refresh upload count from backend logs
     setTimeout(closeUp, 1500);
   } catch (e) {
     fl.style.width = '0%';
