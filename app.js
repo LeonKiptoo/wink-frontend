@@ -57,6 +57,42 @@ const state = {
   evidence: []
 };
 
+let backendActivityDepth = 0;
+
+function beginBackendActivity() {
+  backendActivityDepth += 1;
+  syncBackendProgressUi();
+}
+
+function endBackendActivity() {
+  backendActivityDepth = Math.max(0, backendActivityDepth - 1);
+  syncBackendProgressUi();
+}
+
+function syncBackendProgressUi() {
+  const bar = qs("backend-progress");
+  if (bar) {
+    const on = backendActivityDepth > 0;
+    bar.classList.toggle("active", on);
+    bar.setAttribute("aria-busy", on ? "true" : "false");
+  }
+  document.body.classList.toggle("backend-busy", backendActivityDepth > 0);
+}
+
+function shouldShowProgressForUrl(url) {
+  const u = String(url || "");
+  return !u.includes("/upload-jobs/");
+}
+
+async function withBackendActivity(fn) {
+  beginBackendActivity();
+  try {
+    return await fn();
+  } finally {
+    endBackendActivity();
+  }
+}
+
 function qs(id) { return document.getElementById(id); }
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 function esc(value) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
@@ -85,7 +121,7 @@ function emptyStateMarkup() {
 
 function renderShell() {
   qs("sidebar").innerHTML = `<div class="brand"><div class="mark">Wink</div><div class="tag">Reading workspace</div></div><div class="stack"><button type="button" class="btn primary" onclick="newWorkspace()"><span class="icon">add</span> New workspace</button><button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload</button></div><div class="section-label">Recent</div><div class="history scroll" id="history-list"></div><div class="sidebar-lens"><label class="sidebar-lens-label" for="lens-select">Lens</label><select id="lens-select" class="sidebar-lens-select" onchange="setLens(this.value)"></select></div><div class="status sidebar-status" id="health-row"><div class="dot"></div><span id="health-copy">Checking connection…</span></div><div class="footer"><div class="avatar" id="profile-avatar">?</div><div class="profile"><strong id="profile-name">Loading…</strong><span id="profile-tier">Free trial</span></div><button type="button" class="icon-btn" onclick="openAccount()" title="Settings"><span class="icon">settings</span></button><button type="button" class="icon-btn" onclick="doOut()" title="Sign out"><span class="icon">logout</span></button></div>`;
-  qs("workspace").innerHTML = `<div class="upload-strip" id="upload-strip"><div><strong id="strip-title">Processing upload</strong><span id="strip-copy">Preparing your sources…</span></div><div class="mini-progress"><i id="strip-progress"></i></div></div><div class="stream scroll"><div class="stream-inner" id="stream-inner"></div></div><div class="composer"><div class="composer-shell"><div class="composer-box"><textarea id="composer-input" placeholder="Ask a question…" onkeydown="handleComposerKey(event)" oninput="resizeComposer(this)"></textarea><button type="button" class="send" onclick="sendMessage()" title="Send"><span class="icon">arrow_forward</span></button></div></div></div>`;
+  qs("workspace").innerHTML = `<div class="upload-strip" id="upload-strip"><div><strong id="strip-title">Processing upload</strong><span id="strip-copy">Preparing your sources…</span></div><div class="mini-progress"><i id="strip-progress"></i></div></div><div class="stream scroll"><div class="stream-inner" id="stream-inner"></div></div><div class="composer"><div class="composer-shell"><div class="composer-box"><textarea id="composer-input" placeholder="Ask a question…" onkeydown="handleComposerKey(event)" oninput="resizeComposer(this)"></textarea><button type="button" class="send" id="composer-send" onclick="sendMessage()" title="Send"><span class="icon">arrow_forward</span></button></div></div></div>`;
   qs("inspector").innerHTML = `<div class="card card-shortcuts"><div class="card-title"><span class="icon">bolt</span> Shortcuts</div><div class="cta-grid" id="action-grid"></div><button type="button" class="btn secondary btn-danger-outline" onclick="resetWorkspace()"><span class="icon">delete</span> Reset workspace</button></div>`;
   qs("upload-backdrop").innerHTML = `<div class="modal"><div class="modal-head"><div><h3>Add your sources</h3><p>Upload documents, then let Wink extract, summarize, and index them in the background.</p></div><button class="close" onclick="closeUploadModal()"><span class="icon">close</span></button></div><div class="drop"><div style="font-size:13px;color:var(--muted);margin-bottom:14px">Supported: PDF, DOCX, DOC, TXT, CSV, XLSX, PPTX, EPUB, RTF, MD, HTML</div><label class="upload-pick"><span class="icon">upload_file</span> Choose files<input id="upload-input" type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md,.html" onchange="handleFiles(Array.from(this.files || []))" /></label></div><div class="warning" id="upload-warning"></div><div style="margin-top:18px"><div class="progress"><span id="upload-progress"></span></div><div style="margin-top:12px"><strong id="upload-stage-title" style="display:block;font-size:14px">Waiting for files</strong><span id="upload-stage-copy" style="display:block;font-size:12px;color:var(--muted);margin-top:5px">Upload a few sources to start building cards, findings, and comparison notes.</span></div><div class="stage-list" id="upload-stage-list"></div></div><div style="margin-top:18px;display:flex;justify-content:space-between;gap:10px"><button class="btn ghost" id="upload-secondary" onclick="closeUploadModal()">Hide</button><button class="btn secondary" id="upload-primary" onclick="document.getElementById('upload-input').click()">Choose files</button></div></div>`;
   qs("account-backdrop").innerHTML = `<div class="modal"><div class="modal-head"><div><h3>Account</h3><p>Keep the product simple: a sharp free trial, a clear paid plan, and outputs that earn recurring use.</p></div><button class="close" onclick="closeAccount()"><span class="icon">close</span></button></div><div class="field" style="margin-top:18px"><label>Display name</label><input id="account-name" type="text" placeholder="Your display name" /></div><button class="btn secondary" onclick="saveName()" style="width:100%;justify-content:center">Save name</button><div style="display:grid;gap:12px;margin-top:18px"><div class="plan current"><strong>Free trial</strong><div class="plan-price">$0</div><div class="plan-meta">4 uploads, answer history, reading cards, compare workflow, and enough surface area to decide if Wink belongs in your weekly routine.</div></div><div class="plan"><strong>Pro</strong><div class="plan-price">$19 / month</div><div class="plan-meta">Unlimited uploads, faster processing, stronger workspace history, and room for heavier compare workflows. High enough to signal value without feeling enterprise too early.</div><div style="margin-top:12px"><button class="btn primary" onclick="goPro()">Upgrade to Pro</button></div></div></div><div class="field" style="margin-top:18px"><label>New password</label><input id="account-password" type="password" placeholder="At least 8 characters" /></div><button class="btn secondary" onclick="changePassword()" style="width:100%;justify-content:center">Update password</button><div style="margin-top:18px"><button class="btn ghost" onclick="doOut()">Sign out</button></div></div>`;
@@ -116,34 +152,45 @@ async function apiHeaders() {
 }
 
 async function authedFetch(url, options = {}) {
-  const headers = { ...(options.headers || {}), ...(await apiHeaders()) };
-  return fetch(url, { ...options, headers });
+  const showProgress = shouldShowProgressForUrl(url);
+  if (showProgress) beginBackendActivity();
+  try {
+    const headers = { ...(options.headers || {}), ...(await apiHeaders()) };
+    return await fetch(url, { ...options, headers });
+  } finally {
+    if (showProgress) endBackendActivity();
+  }
 }
 
 async function wakeApi() {
   if (state.waking) return;
   state.waking = true;
+  beginBackendActivity();
   qs("status-copy").textContent = "Wink is waking up. This can take a moment on the free tier.";
   qs("status-banner").classList.add("show");
   setHealth("starting", "Starting backend...");
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    try {
-      const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(8000) });
-      if (res.ok) {
-        state.apiReady = true;
-        state.waking = false;
-        qs("status-banner").classList.remove("show");
-        setHealth("online", "Backend online");
-        return true;
-      }
-    } catch (error) {}
-    await sleep(3000);
+  try {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      try {
+        const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(8000) });
+        if (res.ok) {
+          state.apiReady = true;
+          state.waking = false;
+          qs("status-banner").classList.remove("show");
+          setHealth("online", "Backend online");
+          return true;
+        }
+      } catch (error) {}
+      await sleep(3000);
+    }
+    state.apiReady = false;
+    state.waking = false;
+    qs("status-banner").classList.remove("show");
+    setHealth("offline", "Backend offline - try again in a moment");
+    return false;
+  } finally {
+    endBackendActivity();
   }
-  state.apiReady = false;
-  state.waking = false;
-  qs("status-banner").classList.remove("show");
-  setHealth("offline", "Backend offline - try again in a moment");
-  return false;
 }
 
 async function ensureApiReady() {
@@ -266,7 +313,10 @@ function normaliseDocs(list = []) {
 function setLens(nextLens, persist = true) {
   state.lens = LENSES[nextLens] ? nextLens : "research";
   renderLens();
-  if (persist && state.user && state.convId) sb.from("conversations").update({ lens: state.lens }).eq("id", state.convId).then(() => refreshHistory()).catch(() => {});
+  if (persist && state.user && state.convId) {
+    beginBackendActivity();
+    sb.from("conversations").update({ lens: state.lens }).eq("id", state.convId).then(() => refreshHistory()).catch(() => {}).finally(() => endBackendActivity());
+  }
 }
 
 async function updateUsage() {
@@ -288,6 +338,7 @@ async function refreshDocuments() {
 
 async function refreshHistory() {
   if (!state.user) return;
+  beginBackendActivity();
   try {
     const { data, error } = await sb.from("conversations").select("id,title,lens,created_at").eq("user_id", state.user.id).order("created_at", { ascending: false }).limit(25);
     if (error) throw error;
@@ -295,6 +346,8 @@ async function refreshHistory() {
   } catch (error) {
     console.warn("Could not refresh history", error);
     state.conversations = [];
+  } finally {
+    endBackendActivity();
   }
   renderHistory();
   updateStats();
@@ -302,24 +355,28 @@ async function refreshHistory() {
 
 async function saveMessage(role, content, extras = {}) {
   if (!state.user || !state.convId) return;
+  beginBackendActivity();
   try {
     await sb.from("messages").insert({ conversation_id: state.convId, role, content, source: extras.source || "", chunks_used: extras.chunks_used || 0 });
   } catch (error) { console.warn("Could not save message", error); }
+  finally { endBackendActivity(); }
 }
 
 async function ensureConversation(seedTitle) {
   if (!state.user) return null;
   if (state.convId) return state.convId;
-  try {
-    const { data, error } = await sb.from("conversations").insert({ user_id: state.user.id, title: truncate(seedTitle, 80), lens: state.lens }).select("id").single();
-    if (error) throw error;
-    state.convId = data?.id || null;
-    await refreshHistory();
-    return state.convId;
-  } catch (error) {
-    console.warn("Could not create conversation", error);
-    return null;
-  }
+  return await withBackendActivity(async () => {
+    try {
+      const { data, error } = await sb.from("conversations").insert({ user_id: state.user.id, title: truncate(seedTitle, 80), lens: state.lens }).select("id").single();
+      if (error) throw error;
+      state.convId = data?.id || null;
+      await refreshHistory();
+      return state.convId;
+    } catch (error) {
+      console.warn("Could not create conversation", error);
+      return null;
+    }
+  });
 }
 
 async function openConversation(id) {
@@ -328,19 +385,21 @@ async function openConversation(id) {
   renderHistory();
   const current = state.conversations.find(item => item.id === id);
   if (current?.lens) setLens(current.lens, false);
-  try {
-    const { data, error } = await sb.from("messages").select("role,content,source,chunks_used,created_at").eq("conversation_id", id).order("created_at", { ascending: true });
-    if (error) throw error;
-    state.evidence = [];
-    if (!data?.length) renderStreamEmpty();
-    else {
-      qs("stream-inner").innerHTML = "";
-      for (const message of data) {
-        if (message.role === "user") addUserMessage(message.content || "");
-        else addAnswerCard({ answer: message.content || "" });
+  await withBackendActivity(async () => {
+    try {
+      const { data, error } = await sb.from("messages").select("role,content,source,chunks_used,created_at").eq("conversation_id", id).order("created_at", { ascending: true });
+      if (error) throw error;
+      state.evidence = [];
+      if (!data?.length) renderStreamEmpty();
+      else {
+        qs("stream-inner").innerHTML = "";
+        for (const message of data) {
+          if (message.role === "user") addUserMessage(message.content || "");
+          else addAnswerCard({ answer: message.content || "" });
+        }
       }
-    }
-  } catch (error) { console.warn("Could not open conversation", error); toast("Could not restore that workspace."); }
+    } catch (error) { console.warn("Could not open conversation", error); toast("Could not restore that workspace."); }
+  });
 }
 
 async function restoreLatestConversation() { if (!state.conversations.length) newWorkspace(); else await openConversation(state.conversations[0].id); }
@@ -451,6 +510,8 @@ async function handleFiles(files) {
   if (tooLarge.length) showUploadWarning(`Each file must be ${MAX_FILE_SIZE_MB} MB or smaller. Too large: ${tooLarge.slice(0,3).map(file => file.name).join(", ")}${tooLarge.length > 3 ? ", ..." : ""}`);
   if (!ready.length) return;
   if (!await ensureApiReady()) { showUploadWarning("The backend is still waking up. Wait a moment and try again."); return; }
+  const uploadModal = qs("upload-modal");
+  uploadModal?.classList.add("is-backend-pending");
   try {
     qs("upload-stage-title").textContent = "Uploading files";
     qs("upload-stage-copy").textContent = `Sending ${ready.length} file${ready.length === 1 ? "" : "s"} to the backend.`;
@@ -464,7 +525,10 @@ async function handleFiles(files) {
     updateUploadState(payload);
     await pollUploadJob(payload.job_id);
   } catch (error) { showUploadWarning(error.message || "Upload failed."); }
-  finally { qs("upload-input").value = ""; }
+  finally {
+    uploadModal?.classList.remove("is-backend-pending");
+    qs("upload-input").value = "";
+  }
 }
 
 async function doIn() { const email = qs("signin-email").value.trim(); const password = qs("signin-password").value; if (!email || !password) { authError("Please fill in all sign-in fields."); return; } const button = qs("signin-btn"); button.disabled = true; button.textContent = "Signing in..."; const { error } = await sb.auth.signInWithPassword({ email, password }); button.disabled = false; button.textContent = "Sign in"; if (error) authError(error.message); }
@@ -474,16 +538,39 @@ async function doOut() { await sb.auth.signOut(); clearPendingUpload(); Object.a
 
 function openAccount() { qs("account-backdrop").classList.add("open"); }
 function closeAccount() { qs("account-backdrop").classList.remove("open"); }
-async function saveName() { if (!state.user) return; const name = qs("account-name").value.trim(); if (!name) return toast("Please enter a display name."); try { await sb.from("profiles").update({ full_name: name }).eq("id", state.user.id); qs("profile-name").textContent = name; qs("profile-avatar").textContent = initials(name); toast("Name saved."); } catch (error) { toast("Could not save name."); } }
-async function changePassword() { const password = qs("account-password").value; if (password.length < 8) return toast("Password must be at least 8 characters."); const { error } = await sb.auth.updateUser({ password }); if (error) toast(error.message); else { qs("account-password").value = ""; toast("Password updated."); } }
+async function saveName() {
+  if (!state.user) return;
+  const name = qs("account-name").value.trim();
+  if (!name) return toast("Please enter a display name.");
+  await withBackendActivity(async () => {
+    try {
+      await sb.from("profiles").update({ full_name: name }).eq("id", state.user.id);
+      qs("profile-name").textContent = name;
+      qs("profile-avatar").textContent = initials(name);
+      toast("Name saved.");
+    } catch (error) { toast("Could not save name."); }
+  });
+}
+async function changePassword() {
+  const password = qs("account-password").value;
+  if (password.length < 8) return toast("Password must be at least 8 characters.");
+  await withBackendActivity(async () => {
+    const { error } = await sb.auth.updateUser({ password });
+    if (error) toast(error.message);
+    else { qs("account-password").value = ""; toast("Password updated."); }
+  });
+}
 function goPro() { window.open("https://wnkia.lemonsqueezy.com/checkout", "_blank", "noopener"); }
 async function resetWorkspace() { if (!confirm("Delete all uploaded sources and reset the workspace?")) return; try { const res = await authedFetch(`${API_BASE}/reset`, { method: "DELETE" }); if (!res.ok) throw new Error(await res.text()); state.docs = []; state.selectedDoc = null; state.evidence = []; renderSources(); newWorkspace(); await updateUsage(); toast("Workspace cleared."); } catch (error) { toast(`Reset failed: ${error.message}`); } }
 
 async function loadUser(user) {
   state.user = user;
   showApp();
-  try { const { data, error } = await sb.from("profiles").select("*").eq("id", user.id).single(); if (error) throw error; state.profile = data || { tier: "free" }; }
-  catch (error) { state.profile = { tier: "free" }; }
+  try {
+    const { data, error } = await sb.from("profiles").select("*").eq("id", user.id).single();
+    if (error) throw error;
+    state.profile = data || { tier: "free" };
+  } catch (error) { state.profile = { tier: "free" }; }
   const name = state.profile?.full_name || user.email?.split("@")[0] || "Researcher";
   qs("profile-name").textContent = name;
   qs("profile-avatar").textContent = initials(name);
@@ -501,9 +588,17 @@ async function init() {
   renderStreamEmpty();
   renderSources();
   resetUploadUi();
-  try { const { data: { session } } = await sb.auth.getSession(); if (session?.user) await loadUser(session.user); else showAuth(); }
-  catch (error) { console.warn("Session restore failed", error); showAuth(); }
-  sb.auth.onAuthStateChange(async (event, session) => { if (event === "SIGNED_IN" && session?.user) await loadUser(session.user); else if (event === "SIGNED_OUT") showAuth(); });
+  await withBackendActivity(async () => {
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session?.user) await loadUser(session.user);
+      else showAuth();
+    } catch (error) { console.warn("Session restore failed", error); showAuth(); }
+  });
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (event === "SIGNED_IN" && session?.user) await withBackendActivity(async () => { await loadUser(session.user); });
+    else if (event === "SIGNED_OUT") showAuth();
+  });
   wakeApi();
 }
 

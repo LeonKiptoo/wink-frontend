@@ -12,6 +12,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+  <div id="backend-progress" class="backend-progress" aria-hidden="true"><div class="backend-progress-track"><div class="backend-progress-shimmer"></div></div></div>
   <div id="toast"></div>
   <div id="status-banner">
     <div class="status-dot"></div>
@@ -20,7 +21,7 @@
 
   <div id="auth">
     <section class="auth-shell">
-      <div class="auth-card">
+      <div class="auth-card" id="auth-card">
         <div class="auth-card-brand">
           <div class="auth-logo">Wink</div>
           <div class="auth-subbrand">By Wnkia</div>
