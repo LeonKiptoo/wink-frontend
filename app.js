@@ -1,8 +1,6 @@
-// Config is loaded from env.js (gitignored). See env.example.js for the template.
-const _cfg = window.WINK_CONFIG || {};
-const API_BASE = _cfg.API_BASE || "";
-const SB_URL   = _cfg.SB_URL   || "";
-const SB_KEY   = _cfg.SB_KEY   || "";
+const API_BASE = window.ENV_API_BASE || "https://wnkia-backend-production.up.railway.app";
+const SB_URL = "https://ycznroxjicvberxeacba.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inljem5yb3hqaWN2YmVyeGVhY2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NDYyOTUsImV4cCI6MjA5MDIyMjI5NX0.bqHauVDwrzgGxZSYdiA9S2LQgAjdV7BhAv6zdRMTSC4";
 const FREE_LIMIT = 4;
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -28,28 +26,16 @@ const ACTIONS = {
   compare: { label: "Compare Matrix", icon: "table_view", description: "Compare multiple documents side by side.", compare: true }
 };
 
-
-const NEXT_STEPS = {
-  overview:          ["reading_card", "findings", "methodology"],
-  reading_card:      ["compare", "literature_notes", "gap"],
-  methodology:       ["findings", "limitations", "compare"],
-  findings:          ["compare", "literature_notes", "gap"],
-  literature_notes:  ["compare", "gap", "definitions"],
-  gap:               ["literature_notes", "compare", "limitations"],
-  limitations:       ["findings", "compare"],
-  definitions:       ["reading_card", "findings"],
-  compare:           ["literature_notes", "gap", "limitations"]
-};
 const STAGES = [
-  { key: "queued",       label: "Files received",            display: "Receiving your files" },
-  { key: "initializing", label: "Preparing engines",         display: "Getting ready" },
-  { key: "extracting",   label: "Extracting text",           display: "Reading your document" },
-  { key: "summarizing",  label: "Creating routing summaries",display: "Understanding content" },
-  { key: "rebuilding",   label: "Rebuilding index",          display: "Preparing answers" },
-  { key: "indexing",     label: "Indexing passages",         display: "Building search index" },
-  { key: "finalizing",   label: "Saving workspace",          display: "Saving your workspace" },
-  { key: "logging",      label: "Recording usage",           display: "Almost done" },
-  { key: "completed",    label: "Ready",                     display: "Ready" }
+  { key: "queued", label: "Files received" },
+  { key: "initializing", label: "Preparing engines" },
+  { key: "extracting", label: "Extracting text" },
+  { key: "summarizing", label: "Creating routing summaries" },
+  { key: "rebuilding", label: "Rebuilding index" },
+  { key: "indexing", label: "Indexing passages" },
+  { key: "finalizing", label: "Saving workspace" },
+  { key: "logging", label: "Recording usage" },
+  { key: "completed", label: "Ready" }
 ];
 
 const sb = supabase.createClient(SB_URL, SB_KEY, {
@@ -121,7 +107,7 @@ function toast(message, duration = 3200) {
   setTimeout(() => el.classList.remove("show"), duration);
 }
 
-function stageLabel(stage) { return STAGES.find(item => item.key === stage)?.display || "Processing"; }
+function stageLabel(stage) { return STAGES.find(item => item.key === stage)?.label || "Processing"; }
 
 function setHealth(kind, message) {
   const row = qs("health-row");
@@ -130,12 +116,12 @@ function setHealth(kind, message) {
 }
 
 function emptyStateMarkup() {
-  return `<div class="stream-empty"><div class="stream-empty-inner"><p class="stream-empty-headline">Turn long PDFs into instant answers.</p><p class="stream-empty-hint">Works best with research papers, reports, contracts, and policy documents.</p><button type="button" class="btn primary stream-empty-upload" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload sources</button></div></div>`;
+  return `<div class="stream-empty"><button type="button" class="btn primary stream-empty-upload" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload</button></div>`;
 }
 
 function renderShell() {
-  qs("sidebar").innerHTML = `<div class="brand"><div class="mark">Wink</div><div class="tag">Reading workspace</div></div><div class="stack"><button type="button" class="btn primary" onclick="newWorkspace()"><span class="icon">add</span> New workspace</button><button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload</button></div><div class="usage-row"><span><span id="usage-used">0</span> of <span id="usage-limit">4</span> uploads</span><span id="usage-copy" class="usage-copy-text">Free plan.</span></div><div class="usage-track"><div id="usage-progress" class="usage-fill"></div></div><div class="section-label">Recent</div><div class="history scroll" id="history-list"></div><div class="sidebar-lens"><label class="sidebar-lens-label" for="lens-select">Lens</label><select id="lens-select" class="sidebar-lens-select" onchange="setLens(this.value)"></select></div><div class="status sidebar-status" id="health-row"><div class="dot"></div><span id="health-copy">Checking connection…</span></div><div class="footer"><div class="avatar" id="profile-avatar">?</div><div class="profile"><strong id="profile-name">Loading…</strong><span id="profile-tier">Free trial</span></div><button type="button" class="icon-btn" onclick="openAccount()" title="Settings"><span class="icon">settings</span></button><button type="button" class="icon-btn" onclick="doOut()" title="Sign out"><span class="icon">logout</span></button></div>`;
-  qs("workspace").innerHTML = `<div class="upload-strip" id="upload-strip"><div><strong id="strip-title">Processing upload</strong><span id="strip-copy">Preparing your sources…</span></div><div class="mini-progress"><i id="strip-progress"></i></div></div><div class="stream scroll"><div class="stream-inner" id="stream-inner"></div></div><div class="composer"><div class="composer-shell"><div class="composer-lens-row" id="composer-lens-row"></div><div class="composer-box"><textarea id="composer-input" placeholder="Ask a question…" onkeydown="handleComposerKey(event)" oninput="resizeComposer(this)"></textarea><button type="button" class="send" id="composer-send" onclick="sendMessage()" title="Send"><span class="icon">arrow_forward</span></button></div></div></div>`;
+  qs("sidebar").innerHTML = `<div class="brand"><div class="mark">Wink</div><div class="tag">Reading workspace</div></div><div class="stack"><button type="button" class="btn primary" onclick="newWorkspace()"><span class="icon">add</span> New workspace</button><button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload</button></div><div class="section-label">Recent</div><div class="history scroll" id="history-list"></div><div class="sidebar-lens"><label class="sidebar-lens-label" for="lens-select">Lens</label><select id="lens-select" class="sidebar-lens-select" onchange="setLens(this.value)"></select></div><div class="status sidebar-status" id="health-row"><div class="dot"></div><span id="health-copy">Checking connection…</span></div><div class="footer"><div class="avatar" id="profile-avatar">?</div><div class="profile"><strong id="profile-name">Loading…</strong><span id="profile-tier">Free trial</span></div><button type="button" class="icon-btn" onclick="openAccount()" title="Settings"><span class="icon">settings</span></button><button type="button" class="icon-btn" onclick="doOut()" title="Sign out"><span class="icon">logout</span></button></div>`;
+  qs("workspace").innerHTML = `<div class="upload-strip" id="upload-strip"><div><strong id="strip-title">Processing upload</strong><span id="strip-copy">Preparing your sources…</span></div><div class="mini-progress"><i id="strip-progress"></i></div></div><div class="stream scroll"><div class="stream-inner" id="stream-inner"></div></div><div class="composer"><div class="composer-shell"><div class="composer-box"><textarea id="composer-input" placeholder="Ask a question…" onkeydown="handleComposerKey(event)" oninput="resizeComposer(this)"></textarea><button type="button" class="send" id="composer-send" onclick="sendMessage()" title="Send"><span class="icon">arrow_forward</span></button></div></div></div>`;
   qs("inspector").innerHTML = `<div class="card card-shortcuts"><div class="card-title"><span class="icon">bolt</span> Shortcuts</div><div class="cta-grid" id="action-grid"></div><button type="button" class="btn secondary btn-danger-outline" onclick="resetWorkspace()"><span class="icon">delete</span> Reset workspace</button></div>`;
   qs("upload-backdrop").innerHTML = `<div class="modal"><div class="modal-head"><div><h3>Add your sources</h3><p>Upload documents, then let Wink extract, summarize, and index them in the background.</p></div><button class="close" onclick="closeUploadModal()"><span class="icon">close</span></button></div><div class="drop"><div style="font-size:13px;color:var(--muted);margin-bottom:14px">Supported: PDF, DOCX, DOC, TXT, CSV, XLSX, PPTX, EPUB, RTF, MD, HTML</div><label class="upload-pick"><span class="icon">upload_file</span> Choose files<input id="upload-input" type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md,.html" onchange="handleFiles(Array.from(this.files || []))" /></label></div><div class="warning" id="upload-warning"></div><div style="margin-top:18px"><div class="progress"><span id="upload-progress"></span></div><div style="margin-top:12px"><strong id="upload-stage-title" style="display:block;font-size:14px">Waiting for files</strong><span id="upload-stage-copy" style="display:block;font-size:12px;color:var(--muted);margin-top:5px">Upload a few sources to start building cards, findings, and comparison notes.</span></div><div class="stage-list" id="upload-stage-list"></div></div><div style="margin-top:18px;display:flex;justify-content:space-between;gap:10px"><button class="btn ghost" id="upload-secondary" onclick="closeUploadModal()">Hide</button><button class="btn secondary" id="upload-primary" onclick="document.getElementById('upload-input').click()">Choose files</button></div></div>`;
   qs("account-backdrop").innerHTML = `<div class="modal"><div class="modal-head"><div><h3>Account</h3><p>Keep the product simple: a sharp free trial, a clear paid plan, and outputs that earn recurring use.</p></div><button class="close" onclick="closeAccount()"><span class="icon">close</span></button></div><div class="field" style="margin-top:18px"><label>Display name</label><input id="account-name" type="text" placeholder="Your display name" /></div><button class="btn secondary" onclick="saveName()" style="width:100%;justify-content:center">Save name</button><div style="display:grid;gap:12px;margin-top:18px"><div class="plan current"><strong>Free trial</strong><div class="plan-price">$0</div><div class="plan-meta">4 uploads, answer history, reading cards, compare workflow, and enough surface area to decide if Wink belongs in your weekly routine.</div></div><div class="plan"><strong>Pro</strong><div class="plan-price">$19 / month</div><div class="plan-meta">Unlimited uploads, faster processing, stronger workspace history, and room for heavier compare workflows. High enough to signal value without feeling enterprise too early.</div><div style="margin-top:12px"><button class="btn primary" onclick="goPro()">Upgrade to Pro</button></div></div></div><div class="field" style="margin-top:18px"><label>New password</label><input id="account-password" type="password" placeholder="At least 8 characters" /></div><button class="btn secondary" onclick="changePassword()" style="width:100%;justify-content:center">Update password</button><div style="margin-top:18px"><button class="btn ghost" onclick="doOut()">Sign out</button></div></div>`;
@@ -221,26 +207,12 @@ function renderLens() {
   if (!sel) return;
   sel.innerHTML = Object.entries(LENSES).map(([key, meta]) => `<option value="${key}">${esc(meta.label)}</option>`).join("");
   sel.value = state.lens in LENSES ? state.lens : "research";
-  renderComposerLens();
-}
-
-function renderComposerLens() {
-  const row = qs("composer-lens-row");
-  if (!row) return;
-  row.innerHTML = Object.entries(LENSES).map(([key, meta]) =>
-    `<button type="button" class="composer-lens-pill ${state.lens === key ? "active" : ""}" onclick="setLens('${key}')">${esc(meta.label)}</button>`
-  ).join("");
 }
 
 function renderActions() {
   const grid = qs("action-grid");
   if (!grid) return;
-  grid.innerHTML = Object.entries(ACTIONS).map(([key, action]) => {
-    const locked = action.compare && state.docs.length < 2;
-    const cls = `shortcut-btn ${action.compare ? "compare" : ""} ${locked ? "locked" : ""}`;
-    const title = locked ? 'title="Add a second source to unlock"' : "";
-    return `<button type="button" class="${cls}" id="action-${key}" onclick="runAction('${key}')" ${title}><span class="icon">${action.icon}</span>${esc(action.label)}${locked ? '<span class="lock-icon icon">lock</span>' : ""}</button>`;
-  }).join("");
+  grid.innerHTML = Object.entries(ACTIONS).map(([key, action]) => `<button type="button" class="shortcut-btn ${action.compare ? "compare" : ""}" id="action-${key}" onclick="runAction('${key}')"><span class="icon">${action.icon}</span>${esc(action.label)}</button>`).join("");
 }
 
 function updateStats() {
@@ -333,21 +305,6 @@ function addAnswerCard({ answer }) {
   qs("stream-inner").appendChild(node);
   node.scrollIntoView({ behavior: "smooth", block: "end" });
 }
-function addNextSteps(actionKey) {
-  const suggestions = (NEXT_STEPS[actionKey] || []).filter(k => {
-    if (!ACTIONS[k]) return false;
-    if (ACTIONS[k].compare && state.docs.length < 2) return false;
-    return true;
-  }).slice(0, 3);
-  if (!suggestions.length) return;
-  const node = document.createElement("div");
-  node.className = "next-steps";
-  node.innerHTML = `<span class="next-steps-label">What next?</span>` +
-    suggestions.map(k => `<button type="button" class="next-step-btn" onclick="runAction('${k}')"><span class="icon">${esc(ACTIONS[k].icon)}</span>${esc(ACTIONS[k].label)}</button>`).join("");
-  qs("stream-inner").appendChild(node);
-  node.scrollIntoView({ behavior: "smooth", block: "end" });
-}
-
 
 function normaliseDocs(list = []) {
   return list.map(doc => ({ name: doc.filename, ext: String(doc.extension || "").replace(/^\./, "").toUpperCase().slice(0, 4) || "FILE", indexed: !!doc.indexed, size: doc.size_bytes || 0, summary: doc.summary || "" }));
@@ -363,38 +320,7 @@ function setLens(nextLens, persist = true) {
 }
 
 async function updateUsage() {
-  try {
-    const res = await authedFetch(`${API_BASE}/upload-usage`);
-    if (!res.ok) return;
-    const usage = await res.json();
-    const used  = usage.used  ?? 0;
-    const limit = state.profile?.tier === "pro" ? Infinity : (usage.limit ?? FREE_LIMIT);
-    const isPro = state.profile?.tier === "pro";
-
-    // Sidebar usage display
-    const usedEl  = qs("usage-used");
-    const limitEl = qs("usage-limit");
-    const copyEl  = qs("usage-copy");
-    const progEl  = qs("usage-progress");
-    if (usedEl)  usedEl.textContent  = String(used);
-    if (limitEl) limitEl.textContent = isPro ? "∞" : String(limit);
-    if (copyEl)  copyEl.textContent  = isPro ? "Unlimited uploads." : `${limit - used} upload${limit - used === 1 ? "" : "s"} remaining.`;
-    const pct = isPro ? 14 : Math.min(100, (used / Math.max(limit, 1)) * 100);
-    if (progEl) {
-      progEl.style.width = `${pct}%`;
-      progEl.style.background = pct >= 100 ? "var(--danger)" : pct >= 75 ? "#d4820a" : "linear-gradient(90deg,var(--brand),#7a9e97)";
-    }
-
-    // SUG #12: upgrade banner at the wall
-    const banner = qs("upgrade-banner");
-    if (banner) {
-      if (!isPro && used >= limit) {
-        banner.style.display = "flex";
-      } else {
-        banner.style.display = "none";
-      }
-    }
-  } catch (error) { console.warn("Could not fetch usage", error); }
+  try { await authedFetch(`${API_BASE}/upload-usage`); } catch (error) {}
 }
 
 async function refreshDocuments() {
@@ -406,7 +332,6 @@ async function refreshDocuments() {
     state.docs = normaliseDocs(payload.documents || []);
     if (state.selectedDoc && !state.docs.some(doc => doc.name === state.selectedDoc)) state.selectedDoc = null;
     renderSources();
-    renderActions(); // re-evaluate compare gate after doc list changes
     updateStats();
   } catch (error) { console.warn("Could not refresh documents", error); }
 }
@@ -499,10 +424,8 @@ async function runAction(key) {
     removeLoading(loadingId);
     if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
     addAnswerCard({ answer: data.answer || "" });
-    addNextSteps(key);
     await saveMessage("assistant", data.answer || "", { source: data.source || "", chunks_used: data.chunks_in_context || 0 });
     await refreshHistory();
-    renderActions(); // re-evaluate compare gate after docs may have changed
   } catch (error) {
     removeLoading(loadingId);
     addAnswerCard({ answer: `**Error**\n${error.message || "Something went wrong."}` });
@@ -547,11 +470,11 @@ function resetUploadUi() {
   qs("upload-progress").style.width = "0%";
   qs("upload-stage-title").textContent = "Waiting for files";
   qs("upload-stage-copy").textContent = "Upload a few sources to start building cards, findings, and comparison notes.";
-  qs("upload-stage-list").innerHTML = STAGES.map(stage => `<div class="stage"><strong>${esc(stage.display)}</strong><span>Pending</span></div>`).join("");
+  qs("upload-stage-list").innerHTML = STAGES.map(stage => `<div class="stage"><strong>${esc(stage.label)}</strong><span>Pending</span></div>`).join("");
 }
 function showUploadWarning(message) { qs("upload-warning").textContent = message; qs("upload-warning").style.display = "block"; }
 function renderUploadStrip() { const strip = qs("upload-strip"); if (!state.uploadJob || ["completed","failed"].includes(state.uploadJob.status)) { strip.classList.remove("show"); return; } strip.classList.add("show"); qs("strip-title").textContent = stageLabel(state.uploadJob.stage); qs("strip-copy").textContent = state.uploadJob.message || "Processing your sources..."; qs("strip-progress").style.width = `${Math.max(0, Math.min(100, state.uploadJob.progress || 0))}%`; }
-function updateUploadState(job) { state.uploadJob = job; renderUploadStrip(); qs("upload-progress").style.width = `${Math.max(0, Math.min(100, job.progress || 0))}%`; qs("upload-stage-title").textContent = stageLabel(job.stage); qs("upload-stage-copy").textContent = job.message || "Processing your sources..."; const currentIndex = Math.max(STAGES.findIndex(item => item.key === job.stage), 0); qs("upload-stage-list").innerHTML = STAGES.map((stage, index) => { const cls = job.status === "completed" ? "done" : index < currentIndex ? "done" : index === currentIndex ? "active" : ""; const stateText = job.status === "failed" && index === currentIndex ? "Failed" : job.status === "completed" ? "Done" : index < currentIndex ? "Done" : index === currentIndex ? "Active" : "Pending"; return `<div class="stage ${cls}"><strong>${esc(stage.display)}</strong><span>${esc(stateText)}</span></div>`; }).join(""); }
+function updateUploadState(job) { state.uploadJob = job; renderUploadStrip(); qs("upload-progress").style.width = `${Math.max(0, Math.min(100, job.progress || 0))}%`; qs("upload-stage-title").textContent = stageLabel(job.stage); qs("upload-stage-copy").textContent = job.message || "Processing your sources..."; const currentIndex = Math.max(STAGES.findIndex(item => item.key === job.stage), 0); qs("upload-stage-list").innerHTML = STAGES.map((stage, index) => { const cls = job.status === "completed" ? "done" : index < currentIndex ? "done" : index === currentIndex ? "active" : ""; const stateText = job.status === "failed" && index === currentIndex ? "Failed" : job.status === "completed" ? "Done" : index < currentIndex ? "Done" : index === currentIndex ? "Active" : "Pending"; return `<div class="stage ${cls}"><strong>${esc(stage.label)}</strong><span>${esc(stateText)}</span></div>`; }).join(""); }
 function persistPendingUpload(job) { localStorage.setItem(PENDING_UPLOAD_KEY, JSON.stringify({ job_id: job.job_id, filenames: job.filenames || [] })); }
 function clearPendingUpload() { localStorage.removeItem(PENDING_UPLOAD_KEY); if (state.uploadTimer) clearTimeout(state.uploadTimer); state.uploadTimer = null; state.uploadJob = null; renderUploadStrip(); }
 
@@ -652,7 +575,7 @@ async function loadUser(user) {
   qs("profile-name").textContent = name;
   qs("profile-avatar").textContent = initials(name);
   qs("account-name").value = name;
-  renderLens(); renderActions(); renderComposerLens(); renderStreamEmpty(); renderSources(); updateStats();
+  renderLens(); renderActions(); renderStreamEmpty(); renderSources(); updateStats();
   await Promise.allSettled([refreshDocuments(), refreshHistory(), updateUsage()]);
   await restoreLatestConversation();
   await resumePendingUpload();
