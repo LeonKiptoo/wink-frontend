@@ -1,162 +1,53 @@
-const STAGES = [
-  { key: "queued", label: "Files received" },
-  { key: "initializing", label: "Preparing engines" },
-  { key: "extracting", label: "Extracting text" },
-  { key: "summarizing", label: "Creating routing summaries" },
-  { key: "rebuilding", label: "Rebuilding index" },
-  { key: "indexing", label: "Indexing passages" },
-  { key: "finalizing", label: "Saving workspace" },
-  { key: "logging", label: "Recording usage" },
-  { key: "completed", label: "Ready" }
-];
+const {
+  STAGES,
+  LENSES,
+  ACTIONS,
+  ALLOWED_FILE_TYPES,
+  MAX_FILE_SIZE_MB,
+  MAX_FILE_SIZE_BYTES,
+  PENDING_UPLOAD_KEY,
+  FALLBACK_STATUS,
+  loadRuntimeConfig,
+  createSupabaseClient
+} = window.WinkConfig;
 
-const LENSES = {
-  general: { label: "General", blurb: "Broad synthesis and plain-language reading support." },
-  research: { label: "Research", blurb: "Methodology, findings, gaps, and literature-review framing." },
-  contract: { label: "Legal", blurb: "Clauses, obligations, risks, and ambiguous language." },
-  medical: { label: "Medical", blurb: "Clinical findings, metrics, caveats, and recommendations." }
-};
+const {
+  state,
+  generateWorkspaceId,
+  workspaceLabel,
+  workspaceIdFor,
+  activeWorkspaceConversations,
+  activeWorkspaceDocs,
+  activeWorkspaceTitle,
+  groupConversationsByWorkspace,
+  normaliseDocs
+} = window.WinkState;
 
-const ACTIONS = {
-  overview: { label: "Reading Snapshot", icon: "summarize", description: "Get the fastest orientation to a document." },
-  reading_card: { label: "Reading Card", icon: "note_stack", description: "Create a reusable card for one paper or source set." },
-  methodology: { label: "Methodology", icon: "science", description: "Extract design, sample, and analysis details." },
-  findings: { label: "Key Findings", icon: "insights", description: "Pull the strongest evidence and takeaways." },
-  literature_notes: { label: "Literature Notes", icon: "history_edu", description: "Turn a source into literature-review notes." },
-  gap: { label: "Research Gap", icon: "travel_explore", description: "Surface unanswered questions and future work." },
-  limitations: { label: "Limitations", icon: "warning", description: "Find caveats before you trust the claims." },
-  definitions: { label: "Key Terms", icon: "book_2", description: "Extract terms, concepts, and definitions." },
-  compare: { label: "Compare Matrix", icon: "table_view", description: "Compare multiple documents side by side.", compare: true }
-};
+const {
+  qs,
+  esc,
+  truncate,
+  initials,
+  prettyDate,
+  stageLabel,
+  toast,
+  setHealth,
+  beginBackendActivity,
+  endBackendActivity,
+  withBackendActivity,
+  renderSections,
+  addUserMessage,
+  addLoading,
+  removeLoading,
+  addAnswerCard
+} = window.WinkUI;
 
-const ALLOWED_FILE_TYPES = ["pdf", "docx", "doc", "txt", "csv", "xlsx", "pptx", "html", "epub", "rtf", "md"];
-const MAX_FILE_SIZE_MB = 10;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-const PENDING_UPLOAD_KEY = "wink.pendingUpload.v1";
-const FALLBACK_STATUS = "Connection details are unavailable. Check backend configuration.";
-
-const state = {
-  config: null,
-  sb: null,
-  user: null,
-  profile: null,
-  docs: [],
-  conversations: [],
-  convId: null,
-  lens: "research",
-  apiReady: false,
-  waking: false,
-  selectedDoc: null,
-  uploadJob: null,
-  uploadTimer: null,
-  evidence: [],
-  activeWorkspaceId: null,
-  uploadUsage: null
-};
-
-let backendActivityDepth = 0;
-
-function qs(id) { return document.getElementById(id); }
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-function esc(value) {
-  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-function truncate(value, length = 80) {
-  const text = String(value || "");
-  return text.length > length ? `${text.slice(0, Math.max(0, length - 1))}...` : text;
-}
-function initials(name) {
-  return String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase() || "").join("") || "?";
-}
-function prettyDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
-}
-function generateWorkspaceId() {
-  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-  return `workspace-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-}
-function humanizeIdentifier(value, fallback = "Untitled Workspace") {
-  const raw = String(value || "").trim();
-  if (!raw) return fallback;
-  return raw.replace(/[_-]+/g, " ").replace(/([a-z\d])([A-Z])/g, "$1 $2").replace(/\s+/g, " ").trim().replace(/\b\w/g, match => match.toUpperCase());
-}
-function workspaceLabel(workspaceId, title = "") {
-  const titleLabel = humanizeIdentifier(title, "");
-  if (titleLabel) return titleLabel;
-  const idLabel = humanizeIdentifier(workspaceId, "General Workspace");
-  return idLabel === "Matrixgeneral" ? "Matrix General" : idLabel;
-}
-function stageLabel(stage) { return STAGES.find(item => item.key === stage)?.label || "Processing"; }
-function toast(message, duration = 3200) {
-  const el = qs("toast");
-  if (!el) return;
-  el.textContent = message;
-  el.classList.add("show");
-  window.setTimeout(() => el.classList.remove("show"), duration);
-}
-function setHealth(kind, message) {
-  const row = qs("health-row");
-  if (!row) return;
-  row.className = `sidebar-status status ${kind}`;
-  qs("health-copy").textContent = message;
-}
-function beginBackendActivity() { backendActivityDepth += 1; syncBackendProgressUi(); }
-function endBackendActivity() { backendActivityDepth = Math.max(0, backendActivityDepth - 1); syncBackendProgressUi(); }
-function syncBackendProgressUi() {
-  const bar = qs("backend-progress");
-  const active = backendActivityDepth > 0;
-  if (bar) {
-    bar.classList.toggle("active", active);
-    bar.setAttribute("aria-busy", active ? "true" : "false");
-  }
-  document.body.classList.toggle("backend-busy", active);
-}
-async function withBackendActivity(fn) {
-  beginBackendActivity();
-  try { return await fn(); } finally { endBackendActivity(); }
-}
-function buildApiUrl(path) { return new URL(path, state.config.apiBaseUrl).toString(); }
-function normalizeConfig(payload = {}) {
-  const config = {
-    apiBaseUrl: payload.apiBaseUrl || payload.api_base_url || payload.api_base || "",
-    supabaseUrl: payload.supabaseUrl || payload.supabase_url || "",
-    supabaseAnonKey: payload.supabaseAnonKey || payload.supabase_anon_key || "",
-    checkoutUrl: payload.checkoutUrl || payload.checkout_url || "",
-    appName: payload.appName || payload.app_name || "Wink"
-  };
-  if (!config.apiBaseUrl || !config.supabaseUrl || !config.supabaseAnonKey) throw new Error(FALLBACK_STATUS);
-  return config;
-}
-async function loadRuntimeConfig() {
-  const localConfig = window.__WINK_CONFIG__ || null;
-  if (localConfig?.apiBaseUrl && localConfig?.supabaseUrl && localConfig?.supabaseAnonKey) return normalizeConfig(localConfig);
-  const endpoints = ["/client-config", "/config"];
-  let lastError = new Error(FALLBACK_STATUS);
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint, { signal: AbortSignal.timeout(8000) });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const detail = payload?.detail || payload || {};
-        const message = typeof detail === "string" ? detail : detail?.message || `Config request failed with status ${response.status}`;
-        lastError = new Error(message);
-        continue;
-      }
-      return normalizeConfig(payload);
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(FALLBACK_STATUS);
-    }
-  }
-  throw lastError;
-}
-function createSupabaseClient(config) {
-  return supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "pkce", storageKey: "wink-auth" }
-  });
-}
+const {
+  buildApiUrl,
+  authedFetch,
+  wakeApi,
+  ensureApiReady
+} = window.WinkApi;
 function emptyStateMarkup() {
   return `<div class="stream-empty"><div class="stream-empty-copy"><div class="stream-empty-kicker">Turn looong page PDFs into instant answers</div><p>Upload research papers, reports, contracts, or policy documents to start getting grounded answers in seconds.</p><button type="button" class="btn primary stream-empty-upload" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload sources</button></div></div>`;
 }
@@ -221,7 +112,7 @@ function renderShell() {
   qs("inspector").innerHTML = `
     <div class="card card-shortcuts">
       <div class="card-title"><span class="icon">bolt</span> Shortcuts</div>
-      <div class="card-subtitle">skip typing — get instant insights</div>
+      <div class="card-subtitle">skip typing - get instant insights</div>
       <div class="cta-grid" id="action-grid"></div>
       <div class="section-label inspector-section">Sources</div>
       <div class="source-list scroll" id="source-list"></div>
@@ -308,40 +199,23 @@ function renderLens() {
 function renderActions() {
   const grid = qs("action-grid");
   if (!grid) return;
+  const docs = activeWorkspaceDocs();
+  if (!docs.length) {
+    grid.innerHTML = `<div class="empty-box">Upload one source, then start with Reading Snapshot or Key Findings.</div>`;
+    return;
+  }
   grid.innerHTML = Object.entries(ACTIONS).map(([key, action]) => `
-    <button type="button" class="shortcut-btn ${action.compare ? "compare" : ""} ${(action.compare && activeWorkspaceDocs().length < 2) ? "locked" : ""}" id="action-${key}" title="${esc((action.compare && activeWorkspaceDocs().length < 2) ? "Add a second source to unlock compare" : action.description)}" onclick="runAction('${esc(key)}')" ${(action.compare && activeWorkspaceDocs().length < 2) ? "disabled" : ""}>
+    <button type="button" class="shortcut-btn ${action.compare ? "compare" : ""} ${(action.compare && docs.length < 2) ? "locked" : ""}" id="action-${key}" title="${esc((action.compare && docs.length < 2) ? "Add a second source to unlock compare" : action.description)}" onclick="runAction('${esc(key)}')" ${(action.compare && docs.length < 2) ? "disabled" : ""}>
       <span class="icon">${esc(action.icon)}</span>${esc(action.label)}
     </button>
   `).join("");
 }
 
-function workspaceIdFor(item) { return item?.workspace_id || item?.workspaceId || state.activeWorkspaceId || "general"; }
-function activeWorkspaceConversations() { return state.conversations.filter(item => workspaceIdFor(item) === state.activeWorkspaceId); }
-function activeWorkspaceDocs() { return state.docs.filter(doc => workspaceIdFor(doc) === state.activeWorkspaceId); }
-function activeWorkspaceTitle() {
-  const current = state.conversations.find(item => item.id === state.convId);
-  const latest = activeWorkspaceConversations()[0];
-  const source = current || latest;
-  return workspaceLabel(workspaceIdFor(source), source?.workspace_title || source?.title || "");
-}
 function updateChatHeader() {
   const lens = LENSES[state.lens] || LENSES.research;
   const docCount = activeWorkspaceDocs().length;
   qs("chat-workspace-title").textContent = activeWorkspaceTitle();
-  qs("chat-workspace-copy").textContent = `${lens.blurb} ${docCount ? `${docCount} source${docCount === 1 ? "" : "s"} available in this workspace.` : "Upload a source to begin."}`;
-}
-function groupConversationsByWorkspace(list) {
-  const grouped = new Map();
-  for (const item of list) {
-    const workspaceId = workspaceIdFor(item);
-    if (!grouped.has(workspaceId)) grouped.set(workspaceId, []);
-    grouped.get(workspaceId).push(item);
-  }
-  return [...grouped.entries()].map(([workspaceId, items]) => ({
-    workspaceId,
-    title: workspaceLabel(workspaceId, items[0]?.workspace_title || items[0]?.title || ""),
-    items
-  }));
+  qs("chat-workspace-copy").textContent = `${lens.blurb} ${docCount ? `${docCount} source${docCount === 1 ? "" : "s"} ready in your library.` : "Upload a source to begin."}`;
 }
 function renderHistory() {
   const container = qs("history-list");
@@ -363,7 +237,7 @@ function renderHistory() {
             <div class="history-meta">${esc(prettyDate(item.created_at))}</div>
           </button>
         `).join("")}
-        ${group.items.length ? `<div class="history-thread">${group.items.slice(0, 3).map(item => `<div class="history-subitem">${esc(truncate(item.title || "Recent message", 42))}</div>`).join("")}</div>` : ""}
+        ${(state.workspacePreviews[group.workspaceId] || []).length ? `<div class="history-thread">${state.workspacePreviews[group.workspaceId].map(item => `<div class="history-subitem">${esc(truncate(item, 42))}</div>`).join("")}</div>` : ""}
       </div>
     </section>
   `).join("");
@@ -374,7 +248,7 @@ function renderSources() {
   if (!container) return;
   const docs = activeWorkspaceDocs();
   if (!docs.length) {
-    container.innerHTML = `<div class="empty-box">No sources in this workspace yet.</div>`;
+    container.innerHTML = `<div class="empty-box">No sources uploaded yet.</div>`;
     updateChatHeader();
     return;
   }
@@ -446,87 +320,6 @@ function stab(mode) {
   resetAlerts();
 }
 
-function renderInline(text) {
-  let html = esc(text);
-  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
-  html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
-  return html;
-}
-
-function renderBlock(block) {
-  const lines = block.split("\n").map(line => line.trim()).filter(Boolean);
-  if (!lines.length) return "";
-  const isTable = lines.length >= 2 && lines.every(line => line.startsWith("|") && line.endsWith("|"));
-  if (isTable) {
-    const rows = lines.filter(line => !/^\|[-:|\s]+\|$/.test(line)).map(line => line.split("|").slice(1, -1).map(cell => cell.trim()));
-    if (rows.length >= 2) {
-      return `<div class="table-wrap"><table><thead><tr>${rows[0].map(cell => `<th>${esc(cell)}</th>`).join("")}</tr></thead><tbody>${rows.slice(1).map(row => `<tr>${row.map(cell => `<td>${renderInline(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-    }
-  }
-  if (lines.every(line => /^\d+\.\s+/.test(line))) return `<ol>${lines.map(line => `<li>${renderInline(line.replace(/^\d+\.\s+/, ""))}</li>`).join("")}</ol>`;
-  if (lines.every(line => /^[-*]\s+/.test(line))) return `<ul>${lines.map(line => `<li>${renderInline(line.replace(/^[-*]\s+/, ""))}</li>`).join("")}</ul>`;
-  if (lines.length === 1 && /^source:/i.test(lines[0])) return `<blockquote>${renderInline(lines[0])}</blockquote>`;
-  return lines.map(line => `<p>${renderInline(line)}</p>`).join("");
-}
-
-function parseSections(text) {
-  const value = String(text || "").replace(/\r/g, "").trim();
-  if (!value) return [];
-  const matches = [...value.matchAll(/(?:^|\n)\*\*([^*\n]+)\*\*\s*\n/g)];
-  if (!matches.length) return [{ title: "Answer", body: value }];
-  return matches.map((match, index) => {
-    const start = (match.index || 0) + match[0].length;
-    const end = index + 1 < matches.length ? (matches[index + 1].index || value.length) : value.length;
-    return { title: match[1].trim(), body: value.slice(start, end).trim() };
-  }).filter(section => section.body);
-}
-
-function renderSections(text) {
-  const sections = parseSections(text);
-  if (!sections.length) return `<div class="rich"><p>${renderInline(text)}</p></div>`;
-  return sections.map(section => {
-    const body = section.body.split(/\n\s*\n/).map(chunk => chunk.trim()).filter(Boolean).map(renderBlock).join("");
-    return `<div class="answer-block"><h4 class="section-heading">${esc(section.title)}</h4><div class="rich">${body}</div></div>`;
-  }).join("");
-}
-
-function addUserMessage(content) {
-  const node = document.createElement("div");
-  node.className = "message-user";
-  node.innerHTML = `<div>${esc(content)}</div><small>${esc(LENSES[state.lens].label)} lens${state.selectedDoc ? ` | ${esc(truncate(state.selectedDoc, 28))}` : ""}</small>`;
-  qs("stream-inner").appendChild(node);
-  node.scrollIntoView({ behavior: "smooth", block: "end" });
-}
-function addLoading() {
-  const id = `loading-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const node = document.createElement("div");
-  node.className = "loading";
-  node.id = id;
-  node.innerHTML = `<div class="dots"><i></i><i></i><i></i></div><div><span class="loading-text">Working...</span></div>`;
-  qs("stream-inner").appendChild(node);
-  node.scrollIntoView({ behavior: "smooth", block: "end" });
-  return id;
-}
-function removeLoading(id) { qs(id)?.remove(); }
-function addAnswerCard({ answer }) {
-  const node = document.createElement("div");
-  node.className = "answer answer-simple";
-  node.innerHTML = `<div class="answer-body">${renderSections(answer)}</div>`;
-  qs("stream-inner").appendChild(node);
-  node.scrollIntoView({ behavior: "smooth", block: "end" });
-}
-
-function normaliseDocs(list = []) {
-  return list.map(doc => ({
-    name: doc.filename || doc.name || "Untitled",
-    ext: String(doc.extension || "").replace(/^\./, "").toUpperCase().slice(0, 4) || "FILE",
-    indexed: Boolean(doc.indexed),
-    size: Number(doc.size_bytes || doc.size || 0),
-    summary: doc.summary || "",
-    workspace_id: doc.workspace_id || doc.workspaceId || state.activeWorkspaceId || "general"
-  }));
-}
 function setLens(nextLens, persist = true) {
   state.lens = LENSES[nextLens] ? nextLens : "research";
   renderLens();
@@ -535,66 +328,6 @@ function setLens(nextLens, persist = true) {
     state.sb.from("conversations").update({ lens: state.lens }).eq("id", state.convId).then(() => refreshHistory()).catch(() => {}).finally(() => endBackendActivity());
   }
 }
-async function apiHeaders() {
-  const headers = {};
-  const { data: { session } } = await state.sb.auth.getSession();
-  if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-  return headers;
-}
-function shouldShowProgressForUrl(url) { return !String(url || "").includes("/upload-jobs/"); }
-async function authedFetch(url, options = {}) {
-  const showProgress = shouldShowProgressForUrl(url);
-  if (showProgress) beginBackendActivity();
-  try {
-    const headers = { ...(options.headers || {}), ...(await apiHeaders()) };
-    return await fetch(url, { ...options, headers });
-  } finally {
-    if (showProgress) endBackendActivity();
-  }
-}
-
-async function wakeApi() {
-  if (!state.config?.apiBaseUrl) {
-    setHealth("offline", FALLBACK_STATUS);
-    return false;
-  }
-  if (state.waking) return false;
-  state.waking = true;
-  beginBackendActivity();
-  qs("status-copy").textContent = "Wink is waking up. This can take a moment on the free tier.";
-  qs("status-banner").classList.add("show");
-  setHealth("starting", "Starting backend...");
-  try {
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      try {
-        const response = await fetch(buildApiUrl("/health"), { signal: AbortSignal.timeout(8000) });
-        if (response.ok) {
-          state.apiReady = true;
-          setHealth("online", "Backend online");
-          return true;
-        }
-      } catch (error) {}
-      await sleep(3000);
-    }
-    state.apiReady = false;
-    setHealth("offline", "Backend offline. Try again in a moment.");
-    return false;
-  } finally {
-    state.waking = false;
-    qs("status-banner").classList.remove("show");
-    endBackendActivity();
-  }
-}
-
-async function ensureApiReady() {
-  if (state.apiReady) return true;
-  if (state.waking) {
-    while (state.waking) await sleep(800);
-    return state.apiReady;
-  }
-  return wakeApi();
-}
-
 async function updateUsage() {
   try {
     const response = await authedFetch(buildApiUrl("/upload-usage"));
@@ -627,6 +360,29 @@ async function fetchConversations() {
   return state.sb.from("conversations").select("id,title,lens,created_at").eq("user_id", state.user.id).order("created_at", { ascending: false }).limit(50);
 }
 
+async function fetchWorkspacePreviews(conversations) {
+  const conversationIds = conversations.map(item => item.id).filter(Boolean);
+  if (!conversationIds.length) return {};
+  const workspaceByConversation = Object.fromEntries(conversations.map(item => [item.id, workspaceIdFor(item)]));
+  const previews = {};
+  const { data, error } = await state.sb
+    .from("messages")
+    .select("conversation_id,role,content,created_at")
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: false })
+    .limit(150);
+  if (error) throw error;
+  for (const message of data || []) {
+    if (message.role !== "user" || !String(message.content || "").trim()) continue;
+    const workspaceId = workspaceByConversation[message.conversation_id];
+    if (!workspaceId) continue;
+    if (!previews[workspaceId]) previews[workspaceId] = [];
+    if (previews[workspaceId].length >= 3) continue;
+    previews[workspaceId].push(String(message.content).trim());
+  }
+  return previews;
+}
+
 async function refreshHistory() {
   if (!state.user) return;
   beginBackendActivity();
@@ -634,10 +390,12 @@ async function refreshHistory() {
     const { data, error } = await fetchConversations();
     if (error) throw error;
     state.conversations = (data || []).map(item => ({ ...item, workspace_id: item.workspace_id || item.id || state.activeWorkspaceId || "general" }));
+    state.workspacePreviews = await fetchWorkspacePreviews(state.conversations).catch(() => ({}));
     if (!state.activeWorkspaceId && state.conversations.length) state.activeWorkspaceId = workspaceIdFor(state.conversations[0]);
   } catch (error) {
     console.warn("Could not refresh history", error);
     state.conversations = [];
+    state.workspacePreviews = {};
   } finally {
     endBackendActivity();
   }
@@ -1002,7 +760,7 @@ async function doGoogle() {
 async function doOut() {
   await state.sb.auth.signOut();
   clearPendingUpload();
-  Object.assign(state, { user: null, profile: null, docs: [], conversations: [], convId: null, selectedDoc: null, evidence: [], activeWorkspaceId: null, uploadUsage: null });
+  Object.assign(state, { user: null, profile: null, docs: [], conversations: [], workspacePreviews: {}, convId: null, selectedDoc: null, evidence: [], activeWorkspaceId: null, uploadUsage: null });
   showAuth();
   toast("Signed out.");
 }
@@ -1046,12 +804,13 @@ function goPro() {
   window.open(state.config.checkoutUrl, "_blank", "noopener");
 }
 async function resetWorkspace() {
-  if (!confirm("Delete all uploaded sources and reset the active workspace?")) return;
+  if (!confirm("Delete all uploaded sources and reset your library?")) return;
   try {
     const response = await authedFetch(buildApiUrl("/reset"), { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspace_id: state.activeWorkspaceId }) });
     if (!response.ok) throw new Error(await response.text());
-    state.docs = state.docs.filter(doc => workspaceIdFor(doc) !== state.activeWorkspaceId);
-    state.conversations = state.conversations.filter(item => workspaceIdFor(item) !== state.activeWorkspaceId);
+    state.docs = [];
+    state.conversations = [];
+    state.workspacePreviews = {};
     state.selectedDoc = null;
     state.evidence = [];
     newWorkspace();
