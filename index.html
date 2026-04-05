@@ -8,8 +8,17 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;1,6..72,300;1,6..72,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@300,0&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="./styles.css" />
+<link rel="stylesheet" href="./style.css" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+window.__WINK_CONFIG__ = window.__WINK_CONFIG__ || {
+  apiBaseUrl: window.ENV_API_BASE_URL || "",
+  supabaseUrl: window.ENV_SUPABASE_URL || "",
+  supabaseAnonKey: window.ENV_SUPABASE_ANON_KEY || "",
+  checkoutUrl: window.ENV_CHECKOUT_URL || "",
+  appName: "Wink"
+};
+</script>
 </head>
 <body>
   <div id="backend-progress" class="backend-progress" aria-hidden="true"><div class="backend-progress-track"><div class="backend-progress-shimmer"></div></div></div>
