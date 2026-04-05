@@ -1,6 +1,5 @@
 (function initWinkApi() {
   const { state } = window.WinkState;
-  const { FALLBACK_STATUS } = window.WinkConfig;
   const { beginBackendActivity, endBackendActivity, qs, setHealth } = window.WinkUI;
 
   function sleep(ms) {
@@ -8,6 +7,9 @@
   }
 
   function buildApiUrl(path) {
+    if (!state.config?.apiBaseUrl) {
+      throw new Error("The backend URL is not configured for this frontend deployment.");
+    }
     return new URL(path, state.config.apiBaseUrl).toString();
   }
 
@@ -35,7 +37,7 @@
 
   async function wakeApi() {
     if (!state.config?.apiBaseUrl) {
-      setHealth("offline", FALLBACK_STATUS);
+      setHealth("offline", "Backend connection is not configured yet.");
       return false;
     }
     if (state.waking) return false;

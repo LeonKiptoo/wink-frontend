@@ -34,7 +34,7 @@
   const MAX_FILE_SIZE_MB = 10;
   const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
   const PENDING_UPLOAD_KEY = "wink.pendingUpload.v1";
-  const FALLBACK_STATUS = "Connection details are unavailable. Check backend configuration.";
+  const FALLBACK_STATUS = "Sign-in is unavailable because the Supabase connection details are missing.";
 
   function normalizeConfig(payload = {}) {
     const config = {
@@ -42,17 +42,22 @@
       supabaseUrl: payload.supabaseUrl || payload.supabase_url || "",
       supabaseAnonKey: payload.supabaseAnonKey || payload.supabase_anon_key || "",
       checkoutUrl: payload.checkoutUrl || payload.checkout_url || "",
-      appName: payload.appName || payload.app_name || "Wink"
+      appName: payload.appName || payload.app_name || "Wink",
+      backendConfigured: payload.backendConfigured ?? Boolean(payload.apiBaseUrl || payload.api_base_url || payload.api_base),
+      missingBackendConfig: payload.missingBackendConfig || payload.missing_backend_config || []
     };
-    if (!config.apiBaseUrl || !config.supabaseUrl || !config.supabaseAnonKey) {
-      throw new Error(FALLBACK_STATUS);
+    if (!config.supabaseUrl || !config.supabaseAnonKey) {
+      const missing = [];
+      if (!config.supabaseUrl) missing.push("SUPABASE_URL");
+      if (!config.supabaseAnonKey) missing.push("SUPABASE_ANON_KEY");
+      throw new Error(`${FALLBACK_STATUS}${missing.length ? ` Missing: ${missing.join(", ")}.` : ""}`);
     }
     return config;
   }
 
   async function loadRuntimeConfig() {
     const localConfig = window.__WINK_CONFIG__ || null;
-    if (localConfig?.apiBaseUrl && localConfig?.supabaseUrl && localConfig?.supabaseAnonKey) {
+    if (localConfig?.supabaseUrl && localConfig?.supabaseAnonKey) {
       return normalizeConfig(localConfig);
     }
 
@@ -64,7 +69,10 @@
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           const detail = payload?.detail || payload || {};
-          const message = typeof detail === "string" ? detail : detail?.message || `Config request failed with status ${response.status}`;
+          const missing = Array.isArray(detail?.missing) ? detail.missing : [];
+          const message = typeof detail === "string"
+            ? detail
+            : `${detail?.message || `Config request failed with status ${response.status}`}${missing.length ? ` Missing: ${missing.join(", ")}.` : ""}`;
           lastError = new Error(message);
           continue;
         }

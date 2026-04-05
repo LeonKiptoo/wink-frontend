@@ -299,12 +299,14 @@ function toggleDocumentFilter(name) {
   state.selectedDoc = state.selectedDoc === name ? null : name;
   renderSources();
 }
-function activateWorkspace(workspaceId) {
+async function activateWorkspace(workspaceId) {
   state.activeWorkspaceId = workspaceId;
   const latestConversation = state.conversations.find(item => workspaceIdFor(item) === workspaceId);
-  if (latestConversation) openConversation(latestConversation.id);
+  if (latestConversation) await openConversation(latestConversation.id);
   else {
     state.convId = null;
+    state.docsByWorkspace[workspaceId] = state.docsByWorkspace[workspaceId] || [];
+    await refreshDocuments(workspaceId);
     renderHistory();
     renderSources();
     renderActions();
@@ -339,16 +341,27 @@ async function updateUsage() {
   updateStats();
 }
 
-async function refreshDocuments() {
+async function refreshDocuments(workspaceId = state.activeWorkspaceId || "general") {
   if (!state.user) return;
+  if (!state.config?.apiBaseUrl) {
+    state.docsByWorkspace[workspaceId] = state.docsByWorkspace[workspaceId] || [];
+    if (workspaceId === state.activeWorkspaceId) {
+      if (state.selectedDoc && !activeWorkspaceDocs().some(doc => doc.name === state.selectedDoc)) state.selectedDoc = null;
+      renderSources();
+      renderActions();
+    }
+    return;
+  }
   try {
-    const response = await authedFetch(buildApiUrl("/documents"));
+    const response = await authedFetch(buildApiUrl(`/documents?workspace_id=${encodeURIComponent(workspaceId)}`));
     if (!response.ok) throw new Error(`Documents failed (${response.status})`);
     const payload = await response.json();
-    state.docs = normaliseDocs(payload.documents || []);
-    if (state.selectedDoc && !state.docs.some(doc => doc.name === state.selectedDoc)) state.selectedDoc = null;
-    renderSources();
-    renderActions();
+    state.docsByWorkspace[workspaceId] = normaliseDocs(payload.documents || []);
+    if (workspaceId === state.activeWorkspaceId) {
+      if (state.selectedDoc && !activeWorkspaceDocs().some(doc => doc.name === state.selectedDoc)) state.selectedDoc = null;
+      renderSources();
+      renderActions();
+    }
   } catch (error) {
     console.warn("Could not refresh documents", error);
   }
@@ -456,6 +469,7 @@ async function openConversation(id) {
   if (current) state.activeWorkspaceId = workspaceIdFor(current);
   renderHistory();
   renderLens();
+  await refreshDocuments(state.activeWorkspaceId);
   renderSources();
   renderActions();
   await withBackendActivity(async () => {
@@ -492,6 +506,7 @@ function newWorkspace() {
   state.convId = null;
   state.selectedDoc = null;
   state.activeWorkspaceId = generateWorkspaceId();
+  state.docsByWorkspace[state.activeWorkspaceId] = [];
   renderHistory();
   renderSources();
   renderActions();
@@ -513,7 +528,7 @@ async function runAction(key) {
   button?.classList.add("loading");
   if (!await ensureApiReady()) {
     button?.classList.remove("loading");
-    toast("Backend is still waking up. Try again in a moment.");
+    toast(state.config?.apiBaseUrl ? "Backend is still waking up. Try again in a moment." : "Backend connection is not configured yet.");
     return;
   }
   const title = state.selectedDoc ? `${action.label} - ${state.selectedDoc}` : action.label;
@@ -556,7 +571,7 @@ async function sendMessage() {
   const raw = input.value.trim();
   if (!raw) return;
   if (!await ensureApiReady()) {
-    toast("Backend is still waking up. Try again in a moment.");
+    toast(state.config?.apiBaseUrl ? "Backend is still waking up. Try again in a moment." : "Backend connection is not configured yet.");
     return;
   }
   const title = state.selectedDoc ? `${raw} (${state.selectedDoc})` : raw;
@@ -626,7 +641,7 @@ function updateUploadState(job) {
   }).join("");
 }
 function persistPendingUpload(job) {
-  localStorage.setItem(PENDING_UPLOAD_KEY, JSON.stringify({ job_id: job.job_id, filenames: job.filenames || [] }));
+  localStorage.setItem(PENDING_UPLOAD_KEY, JSON.stringify({ job_id: job.job_id, workspace_id: job.workspace_id || state.activeWorkspaceId || "general", filenames: job.filenames || [] }));
 }
 function clearPendingUpload() {
   localStorage.removeItem(PENDING_UPLOAD_KEY);
@@ -635,16 +650,16 @@ function clearPendingUpload() {
   state.uploadJob = null;
   renderUploadStrip();
 }
-async function pollUploadJob(jobId) {
+async function pollUploadJob(jobId, workspaceId = state.activeWorkspaceId || "general") {
   try {
-    const response = await authedFetch(buildApiUrl(`/upload-jobs/${jobId}`));
+    const response = await authedFetch(buildApiUrl(`/upload-jobs/${jobId}?workspace_id=${encodeURIComponent(workspaceId)}`));
     const job = await response.json();
     if (!response.ok) throw new Error(job.detail || `Upload job failed (${response.status})`);
     updateUploadState(job);
     if (job.status === "completed") {
       toast("Sources indexed and ready.");
       clearPendingUpload();
-      await Promise.allSettled([refreshDocuments(), updateUsage(), refreshHistory()]);
+      await Promise.allSettled([refreshDocuments(workspaceId), updateUsage(), refreshHistory()]);
       window.setTimeout(() => closeUploadModal(), 900);
       return;
     }
@@ -653,7 +668,7 @@ async function pollUploadJob(jobId) {
       clearPendingUpload();
       return;
     }
-    state.uploadTimer = window.setTimeout(() => pollUploadJob(jobId), 1300);
+      state.uploadTimer = window.setTimeout(() => pollUploadJob(jobId, workspaceId), 1300);
   } catch (error) {
     showUploadWarning(error.message || "Could not track upload progress.");
     clearPendingUpload();
@@ -666,9 +681,10 @@ async function resumePendingUpload() {
   try {
     const pending = JSON.parse(raw);
     if (!pending?.job_id) return;
+    state.activeWorkspaceId = pending.workspace_id || state.activeWorkspaceId || generateWorkspaceId();
     openUploadModal(false);
     updateUploadState({ job_id: pending.job_id, status: "running", stage: "queued", progress: 8, message: "Rejoining your upload job..." });
-    await pollUploadJob(pending.job_id);
+    await pollUploadJob(pending.job_id, state.activeWorkspaceId);
   } catch (error) {
     clearPendingUpload();
   }
@@ -690,7 +706,7 @@ async function handleFiles(files) {
   }
   if (!ready.length) return;
   if (!await ensureApiReady()) {
-    showUploadWarning("The backend is still waking up. Wait a moment and try again.");
+    showUploadWarning(state.config?.apiBaseUrl ? "The backend is still waking up. Wait a moment and try again." : "Backend connection is not configured yet.");
     return;
   }
   const uploadModal = qs("upload-modal");
@@ -699,16 +715,22 @@ async function handleFiles(files) {
     qs("upload-stage-title").textContent = "Uploading files";
     qs("upload-stage-copy").textContent = `Sending ${ready.length} file${ready.length === 1 ? "" : "s"} to the backend.`;
     qs("upload-progress").style.width = "12%";
+    const targetWorkspaceId = state.activeWorkspaceId || generateWorkspaceId();
+    state.activeWorkspaceId = targetWorkspaceId;
+    state.docsByWorkspace[targetWorkspaceId] = state.docsByWorkspace[targetWorkspaceId] || [];
+    if (!activeWorkspaceConversations().length && !state.convId) {
+      await ensureConversation(ready[0]?.name?.replace(/\.[^.]+$/, "") || "New Workspace");
+    }
     const form = new FormData();
     for (const file of ready) form.append("files", file, file.name);
-    form.append("workspace_id", state.activeWorkspaceId || generateWorkspaceId());
+    form.append("workspace_id", targetWorkspaceId);
     const response = await authedFetch(buildApiUrl("/upload"), { method: "POST", body: form });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || `Upload failed (${response.status})`);
-    if (!state.activeWorkspaceId) state.activeWorkspaceId = payload.workspace_id || generateWorkspaceId();
+    state.activeWorkspaceId = payload.workspace_id || targetWorkspaceId;
     persistPendingUpload(payload);
     updateUploadState(payload);
-    await pollUploadJob(payload.job_id);
+    await pollUploadJob(payload.job_id, state.activeWorkspaceId);
   } catch (error) {
     showUploadWarning(error.message || "Upload failed.");
   } finally {
@@ -718,6 +740,10 @@ async function handleFiles(files) {
 }
 
 async function doIn() {
+  if (!state.sb) {
+    authError("Supabase sign-in is not configured for this deployment yet.");
+    return;
+  }
   const email = qs("signin-email").value.trim();
   const password = qs("signin-password").value;
   if (!email || !password) {
@@ -733,6 +759,10 @@ async function doIn() {
   if (error) authError(error.message);
 }
 async function doUp() {
+  if (!state.sb) {
+    authError("Supabase sign-up is not configured for this deployment yet.");
+    return;
+  }
   const name = qs("signup-name").value.trim();
   const email = qs("signup-email").value.trim().toLowerCase();
   const password = qs("signup-password").value;
@@ -754,13 +784,17 @@ async function doUp() {
   else authMessage("Check your email to confirm your account.");
 }
 async function doGoogle() {
+  if (!state.sb) {
+    authError("Google sign-in is not configured for this deployment yet.");
+    return;
+  }
   const { error } = await state.sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}${window.location.pathname}` } });
   if (error) authError(error.message);
 }
 async function doOut() {
   await state.sb.auth.signOut();
   clearPendingUpload();
-  Object.assign(state, { user: null, profile: null, docs: [], conversations: [], workspacePreviews: {}, convId: null, selectedDoc: null, evidence: [], activeWorkspaceId: null, uploadUsage: null });
+  Object.assign(state, { user: null, profile: null, docsByWorkspace: {}, conversations: [], workspacePreviews: {}, convId: null, selectedDoc: null, evidence: [], activeWorkspaceId: null, uploadUsage: null });
   showAuth();
   toast("Signed out.");
 }
@@ -804,18 +838,20 @@ function goPro() {
   window.open(state.config.checkoutUrl, "_blank", "noopener");
 }
 async function resetWorkspace() {
-  if (!confirm("Delete all uploaded sources and reset your library?")) return;
+  const workspaceId = state.activeWorkspaceId || "general";
+  if (!confirm("Clear the uploaded sources and search index for this workspace?")) return;
   try {
-    const response = await authedFetch(buildApiUrl("/reset"), { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspace_id: state.activeWorkspaceId }) });
+    const response = await authedFetch(buildApiUrl("/reset"), { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspace_id: workspaceId }) });
     if (!response.ok) throw new Error(await response.text());
-    state.docs = [];
-    state.conversations = [];
-    state.workspacePreviews = {};
+    state.docsByWorkspace[workspaceId] = [];
     state.selectedDoc = null;
     state.evidence = [];
-    newWorkspace();
+    qs("stream-inner").innerHTML = emptyStateMarkup();
+    renderSources();
+    renderActions();
+    updateChatHeader();
     await updateUsage();
-    toast("Workspace cleared.");
+    toast("Workspace sources cleared.");
   } catch (error) {
     toast(`Reset failed: ${error.message}`);
   }
@@ -840,16 +876,19 @@ async function loadUser(user) {
   renderStreamEmpty();
   renderSources();
   updateStats();
-  await Promise.allSettled([refreshDocuments(), refreshHistory(), updateUsage()]);
-  await restoreLatestConversation();
+  await Promise.allSettled([refreshHistory(), updateUsage()]);
+  if (state.conversations.length) await restoreLatestConversation();
+  else newWorkspace();
   await resumePendingUpload();
 }
 
 async function init() {
+  let configError = null;
   try {
     state.config = await loadRuntimeConfig();
     state.sb = createSupabaseClient(state.config);
   } catch (error) {
+    configError = error instanceof Error ? error : new Error(FALLBACK_STATUS);
     console.error("Runtime config failed", error);
   }
   renderShell();
@@ -860,8 +899,9 @@ async function init() {
   resetUploadUi();
   if (!state.sb) {
     showAuth();
-    authError(FALLBACK_STATUS);
-    setHealth("offline", FALLBACK_STATUS);
+    const message = configError?.message || FALLBACK_STATUS;
+    authError(message);
+    setHealth("offline", message);
     return;
   }
   await withBackendActivity(async () => {

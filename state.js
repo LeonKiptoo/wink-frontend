@@ -4,7 +4,7 @@
     sb: null,
     user: null,
     profile: null,
-    docs: [],
+    docsByWorkspace: {},
     conversations: [],
     workspacePreviews: {},
     convId: null,
@@ -38,6 +38,11 @@
   function workspaceLabel(workspaceId, title = "") {
     const titleLabel = humanizeIdentifier(title, "");
     if (titleLabel) return titleLabel;
+    const rawId = String(workspaceId || "").trim();
+    if (!rawId || rawId === "general") return "General Workspace";
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId) || rawId.startsWith("workspace-")) {
+      return "New Workspace";
+    }
     const idLabel = humanizeIdentifier(workspaceId, "General Workspace");
     return idLabel === "Matrixgeneral" ? "Matrix General" : idLabel;
   }
@@ -51,7 +56,7 @@
   }
 
   function activeWorkspaceDocs() {
-    return state.docs;
+    return state.docsByWorkspace[state.activeWorkspaceId || "general"] || [];
   }
 
   function activeWorkspaceTitle() {

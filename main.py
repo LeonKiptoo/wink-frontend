@@ -1,8 +1,8 @@
+import os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,25 +11,46 @@ class Settings(BaseSettings):
 
     app_name: str = "Wink"
     app_env: str = "production"
-    api_base_url: str = Field(default="", alias="API_BASE_URL")
-    frontend_origin: str = Field(default="*", alias="FRONTEND_ORIGIN")
-    supabase_url: str = Field(default="", alias="SUPABASE_URL")
-    supabase_anon_key: str = Field(default="", alias="SUPABASE_ANON_KEY")
-    checkout_url: str = Field(default="", alias="CHECKOUT_URL")
+    frontend_origin: str = "*"
 
 
 settings = Settings()
 
 
-def missing_public_config() -> list[str]:
+def env_value(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def missing_auth_config() -> list[str]:
+    supabase_url = env_value("SUPABASE_URL", "PUBLIC_SUPABASE_URL")
+    supabase_anon_key = env_value("SUPABASE_ANON_KEY", "PUBLIC_SUPABASE_ANON_KEY")
     missing = []
-    if not settings.api_base_url.strip():
-        missing.append("API_BASE_URL")
-    if not settings.supabase_url.strip():
+    if not supabase_url:
         missing.append("SUPABASE_URL")
-    if not settings.supabase_anon_key.strip():
+    if not supabase_anon_key:
         missing.append("SUPABASE_ANON_KEY")
     return missing
+
+
+def missing_backend_config() -> list[str]:
+    return [] if env_value("API_BASE_URL", "PUBLIC_API_BASE") else ["API_BASE_URL"]
+
+
+def public_config_payload() -> dict[str, Any]:
+    missing_backend = missing_backend_config()
+    return {
+        "appName": settings.app_name,
+        "apiBaseUrl": env_value("API_BASE_URL", "PUBLIC_API_BASE"),
+        "supabaseUrl": env_value("SUPABASE_URL", "PUBLIC_SUPABASE_URL"),
+        "supabaseAnonKey": env_value("SUPABASE_ANON_KEY", "PUBLIC_SUPABASE_ANON_KEY"),
+        "checkoutUrl": env_value("CHECKOUT_URL", "PUBLIC_CHECKOUT_URL"),
+        "backendConfigured": not missing_backend,
+        "missingBackendConfig": missing_backend,
+    }
 
 
 app = FastAPI(title=settings.app_name)
@@ -44,33 +65,30 @@ app.add_middleware(
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    missing_auth = missing_auth_config()
+    missing_backend = missing_backend_config()
     return {
         "status": "ok",
         "environment": settings.app_env,
-        "workers": 1,
-        "config_complete": not missing_public_config(),
-        "missing_public_config": missing_public_config(),
+        "auth_config_complete": not missing_auth,
+        "backend_config_complete": not missing_backend,
+        "missing_auth_config": missing_auth,
+        "missing_backend_config": missing_backend,
     }
 
 
 @app.get("/config")
 async def config() -> dict[str, Any]:
-    missing = missing_public_config()
-    if missing:
+    missing_auth = missing_auth_config()
+    if missing_auth:
         raise HTTPException(
             status_code=503,
             detail={
-                "message": "Frontend public configuration is incomplete on Railway.",
-                "missing": missing,
+                "message": "Frontend Supabase configuration is incomplete on Railway.",
+                "missing": missing_auth,
             },
         )
-    return {
-        "appName": settings.app_name,
-        "apiBaseUrl": settings.api_base_url,
-        "supabaseUrl": settings.supabase_url,
-        "supabaseAnonKey": settings.supabase_anon_key,
-        "checkoutUrl": settings.checkout_url,
-    }
+    return public_config_payload()
 
 
 @app.get("/client-config")
