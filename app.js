@@ -33,7 +33,6 @@ const ALLOWED_FILE_TYPES = ["pdf", "docx", "doc", "txt", "csv", "xlsx", "pptx", 
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const PENDING_UPLOAD_KEY = "wink.pendingUpload.v1";
-const CONFIG_ENDPOINT = "/client-config";
 const FALLBACK_STATUS = "Connection details are unavailable. Check backend configuration.";
 
 const state = {
@@ -134,9 +133,24 @@ function normalizeConfig(payload = {}) {
 async function loadRuntimeConfig() {
   const localConfig = window.__WINK_CONFIG__ || null;
   if (localConfig?.apiBaseUrl && localConfig?.supabaseUrl && localConfig?.supabaseAnonKey) return normalizeConfig(localConfig);
-  const response = await fetch(CONFIG_ENDPOINT, { signal: AbortSignal.timeout(8000) });
-  if (!response.ok) throw new Error(`Config request failed with status ${response.status}`);
-  return normalizeConfig(await response.json());
+  const endpoints = ["/client-config", "/config"];
+  let lastError = new Error(FALLBACK_STATUS);
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, { signal: AbortSignal.timeout(8000) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = payload?.detail || payload || {};
+        const message = typeof detail === "string" ? detail : detail?.message || `Config request failed with status ${response.status}`;
+        lastError = new Error(message);
+        continue;
+      }
+      return normalizeConfig(payload);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(FALLBACK_STATUS);
+    }
+  }
+  throw lastError;
 }
 function createSupabaseClient(config) {
   return supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
