@@ -283,6 +283,14 @@ function authMessage(message) {
   qs("auth-msg").textContent = message;
   qs("auth-msg").style.display = "block";
 }
+function setAuthEnabled(enabled) {
+  const ids = ["signin-btn", "signup-btn", "google-btn", "signin-email", "signin-password", "signup-name", "signup-email", "signup-password"];
+  ids.forEach(id => {
+    const el = qs(id);
+    if (!el) return;
+    el.disabled = !enabled;
+  });
+}
 function showAuth() { qs("auth").style.display = "flex"; qs("app").style.display = "none"; }
 function showApp() { qs("auth").style.display = "none"; qs("app").style.display = "block"; }
 function updateStats() {
@@ -898,12 +906,14 @@ async function init() {
   renderSources();
   resetUploadUi();
   if (!state.sb) {
+    setAuthEnabled(false);
     showAuth();
     const message = configError?.message || FALLBACK_STATUS;
     authError(message);
     setHealth("offline", message);
     return;
   }
+  setAuthEnabled(true);
   await withBackendActivity(async () => {
     try {
       const { data: { session } } = await state.sb.auth.getSession();
