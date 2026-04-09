@@ -932,34 +932,53 @@ async function resetWorkspace() {
 async function deleteWorkspace(workspaceId) {
   if (!confirm("Remove this workspace and its sources?")) return;
   try {
-    const response = await authedFetch(buildApiUrl("/reset"), {
+    const resetResponse = await authedFetch(buildApiUrl("/reset"), {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ workspace_id: workspaceId })
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!resetResponse.ok) {
+      const err = await resetResponse.text();
+      throw new Error(err || "Backend reset failed");
+    }
+  } catch (error) {
+    toast("Could not clear backend: " + error.message);
+    return;
+  }
+  try {
     if (state.sb && state.user) {
-      const convIds = state.conversations
+      const convIds = (state.conversations || [])
         .filter(c => (c.workspace_id || c.workspaceId) === workspaceId)
-        .map(c => c.id);
+        .map(c => c.id)
+        .filter(Boolean);
       if (convIds.length) {
-        await state.sb.from("messages").delete().in("conversation_id", convIds);
-        await state.sb.from("conversations").delete().in("id", convIds);
+        await state.sb
+          .from("messages")
+          .delete()
+          .in("conversation_id", convIds);
+        await state.sb
+          .from("conversations")
+          .delete()
+          .in("id", convIds);
       }
     }
-    delete state.docsByWorkspace[workspaceId];
-    state.conversations = state.conversations.filter(
-      c => (c.workspace_id || c.workspaceId) !== workspaceId
-    );
-    if (state.activeWorkspaceId === workspaceId) {
-      newWorkspace();
-    } else {
-      renderHistory();
-    }
-    toast("Workspace removed.");
-  } catch (error) {
-    toast("Could not remove workspace: " + error.message);
+  } catch (dbError) {
+    console.warn("Supabase cleanup partial:", dbError);
   }
+  delete state.docsByWorkspace[workspaceId];
+  state.conversations = (state.conversations || []).filter(
+    c => (c.workspace_id || c.workspaceId) !== workspaceId
+  );
+  if (state.convId) {
+    const stillExists = (state.conversations || []).some(c => c.id === state.convId);
+    if (!stillExists) state.convId = null;
+  }
+  if (state.activeWorkspaceId === workspaceId) {
+    newWorkspace();
+  } else {
+    renderHistory();
+  }
+  toast("Workspace removed.");
 }
 
 async function loadUser(user) {
