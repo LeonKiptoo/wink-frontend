@@ -22,7 +22,13 @@
 
   function shouldShowProgressForUrl(url) {
     const s = String(url || "");
-    return !s.includes("/upload-jobs/") && !s.includes("/documents") && !s.includes("/upload-usage");
+    if (s.includes("/upload-jobs/")) return false;
+    if (s.includes("/upload-usage")) return false;
+    if (s.includes("/documents")) return false;
+    if (s.includes("/health")) return false;
+    if (s.includes("/client-config")) return false;
+    if (s.includes("/config")) return false;
+    return true;
   }
 
   async function authedFetch(url, options = {}) {
@@ -43,7 +49,6 @@
     }
     if (state.waking) return false;
     state.waking = true;
-    beginBackendActivity();
     qs("status-copy").textContent = "Wink is waking up. This can take a moment on the free tier.";
     qs("status-banner").classList.add("show");
     setHealth("starting", "Starting backend...");
@@ -65,7 +70,6 @@
     } finally {
       state.waking = false;
       qs("status-banner").classList.remove("show");
-      endBackendActivity();
     }
   }
 
