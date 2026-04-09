@@ -42,8 +42,9 @@
   const FALLBACK_STATUS = "Sign-in is unavailable because the Supabase connection details are missing.";
 
   function normalizeConfig(payload = {}) {
+    const apiBaseUrlRaw = payload.apiBaseUrl || payload.api_base_url || payload.api_base || "";
     const config = {
-      apiBaseUrl: payload.apiBaseUrl || payload.api_base_url || payload.api_base || "",
+      apiBaseUrl: apiBaseUrlRaw && !/^https?:\/\//i.test(apiBaseUrlRaw) ? `https://${apiBaseUrlRaw}` : apiBaseUrlRaw,
       supabaseUrl: payload.supabaseUrl || payload.supabase_url || "",
       supabaseAnonKey: payload.supabaseAnonKey || payload.supabase_anon_key || "",
       checkoutUrl: payload.checkoutUrl || payload.checkout_url || "",

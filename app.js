@@ -66,21 +66,21 @@ function renderShell() {
     <div class="sidebar-header">
       <div class="brand">
         <div class="brand-mark">${esc(state.config?.appName || "Wink")}</div>
+        <div class="brand-tag">by Wnkia</div>
       </div>
       <div class="sidebar-actions">
         <button type="button" class="btn primary" onclick="newWorkspace()"><span class="icon">add</span> New workspace</button>
-        <button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload sources</button>
       </div>
     </div>
-    <div class="sidebar-section-label">Recent Workspaces</div>
+    <div class="sidebar-section-label">Recent workspaces</div>
     <div class="history" id="history-list"></div>
     <div class="sidebar-lens">
-      <label class="sidebar-lens-label" for="lens-select">Analysis lens</label>
+      <label class="sidebar-lens-label" for="lens-select">Lens</label>
       <select id="lens-select" class="sidebar-lens-select" onchange="setLens(this.value)"></select>
     </div>
     <div class="sidebar-status status" id="health-row">
       <div class="dot"></div>
-      <span id="health-copy">Checking connection...</span>
+      <span id="health-copy">Checking...</span>
     </div>
     <div class="footer">
       <div class="avatar" id="profile-avatar">?</div>
@@ -88,29 +88,29 @@ function renderShell() {
         <strong id="profile-name">Loading...</strong>
         <span id="profile-tier">Free trial</span>
       </div>
-      <button type="button" class="icon-btn" onclick="openAccount()" title="Account settings"><span class="icon">settings</span></button>
+      <button type="button" class="icon-btn" onclick="openAccount()" title="Settings"><span class="icon">settings</span></button>
     </div>
   `;
 
   qs("workspace").innerHTML = `
     <div id="status-banner">
       <div class="status-dot"></div>
-      <span id="status-copy">Backend is starting up. This takes about 30 seconds on first load.</span>
+      <span id="status-copy">Backend is starting up — this takes about 30 seconds on the first visit.</span>
     </div>
     <div id="backend-progress" aria-hidden="true"><div class="backend-progress-track"><div class="backend-progress-shimmer"></div></div></div>
     <div class="upload-strip" id="upload-strip">
       <div style="flex:1">
-        <strong id="strip-title">Processing your document</strong>
-        <span id="strip-copy">This usually takes 15–30 seconds...</span>
+        <strong id="strip-title">Indexing your document</strong>
+        <span id="strip-copy">Usually takes 15–30 seconds...</span>
       </div>
       <div class="mini-progress"><i id="strip-progress"></i></div>
     </div>
     <div class="chat-area">
       <div class="chat-header">
         <div>
-          <div class="chat-kicker">Active workspace</div>
-          <h2 id="chat-workspace-title">New Workspace</h2>
-          <p id="chat-workspace-copy">Upload a source to begin.</p>
+          <div class="chat-kicker">Workspace</div>
+          <h2 id="chat-workspace-title">New workspace</h2>
+          <p id="chat-workspace-copy"></p>
         </div>
         <button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">add_circle</span> Add sources</button>
       </div>
@@ -122,6 +122,12 @@ function renderShell() {
               <textarea id="composer-input" placeholder="Ask a question about your documents..." onkeydown="handleComposerKey(event)" oninput="resizeComposer(this)"></textarea>
               <button type="button" class="send" id="composer-send" onclick="sendMessage()" title="Send"><span class="icon">arrow_forward</span></button>
             </div>
+            <div class="composer-actions">
+              <label class="composer-upload" title="Upload a document">
+                <span class="icon">upload_file</span> Upload
+                <input type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md,.html" onchange="handleFiles(Array.from(this.files || []))" />
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -131,7 +137,7 @@ function renderShell() {
   qs("inspector").innerHTML = `
     <div class="inspector-inner">
       <div>
-        <div class="inspector-section-title"><span class="icon">bolt</span> Shortcuts</div>
+        <div class="inspector-section-title"><span class="icon">bolt</span> Quick actions</div>
         <div class="shortcuts-grid" id="action-grid"></div>
       </div>
       <div>
@@ -140,7 +146,7 @@ function renderShell() {
       </div>
     </div>
     <div class="inspector-reset">
-      <button type="button" class="btn danger-ghost" style="width:100%" onclick="resetWorkspace()"><span class="icon">delete_sweep</span> Reset workspace</button>
+      <button type="button" class="btn danger-ghost" style="width:100%;font-size:11px" onclick="resetWorkspace()"><span class="icon">delete_sweep</span> Reset workspace</button>
     </div>
   `;
 
@@ -148,22 +154,23 @@ function renderShell() {
     <div class="modal" id="upload-modal">
       <div class="modal-head">
         <div>
-          <h3>Add your sources</h3>
-          <p>Upload documents and Wink will index them so you can ask questions instantly.</p>
+          <h3>Add sources</h3>
+          <p>Upload documents — Wink will extract, summarise, and index them.</p>
         </div>
         <button class="close" onclick="closeUploadModal()"><span class="icon">close</span></button>
       </div>
       <div class="warning" id="upload-warning"></div>
       <div class="drop-zone" onclick="document.getElementById('upload-input').click()">
         <div class="drop-zone-icon"><span class="icon">upload_file</span></div>
-        <div class="drop-title">Choose files or drag and drop</div>
-        <div class="drop-copy">PDF, DOCX, TXT, CSV, XLSX, PPTX, EPUB, RTF, MD, HTML</div>
-        <div style="margin-top:14px">
+        <div class="drop-title">Drop files here</div>
+        <div class="drop-copy">or click to browse your computer</div>
+        <div style="margin-top:12px">
           <label class="upload-pick">
             <span class="icon">folder_open</span> Browse files
             <input id="upload-input" type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md,.html" onchange="handleFiles(Array.from(this.files || []))" />
           </label>
         </div>
+        <div class="drop-types" style="margin-top:10px">PDF · DOCX · TXT · CSV · XLSX · PPTX · EPUB · MD · HTML</div>
       </div>
       <div class="progress-wrap" id="upload-progress-wrap" style="display:none">
         <div class="progress-label">
@@ -182,9 +189,7 @@ function renderShell() {
   qs("account-backdrop").innerHTML = `
     <div class="modal" id="account-modal">
       <div class="modal-head">
-        <div>
-          <h3>Account</h3>
-        </div>
+        <div><h3>Account</h3></div>
         <button class="close" onclick="closeAccount()"><span class="icon">close</span></button>
       </div>
       <div class="field modal-section">
@@ -194,15 +199,15 @@ function renderShell() {
       <button class="btn secondary modal-fill" onclick="saveName()">Save name</button>
       <div class="plan-grid">
         <div class="plan current">
-          <strong>Free trial</strong>
+          <strong>Free</strong>
           <div class="plan-price">$0</div>
           <div class="plan-meta">4 uploads per day. Full access to all quick actions.</div>
         </div>
         <div class="plan">
           <strong>Pro</strong>
-          <div class="plan-price">$19/mo</div>
+          <div class="plan-price">$19<span style="font-size:12px;font-family:var(--sans)">/mo</span></div>
           <div class="plan-meta">Unlimited uploads, faster processing, priority support.</div>
-          <button class="btn primary plan-upgrade modal-fill" onclick="goPro()">Upgrade to Pro</button>
+          <button class="btn primary plan-upgrade modal-fill" onclick="goPro()">Upgrade</button>
         </div>
       </div>
       <div class="field modal-section">
@@ -252,31 +257,26 @@ function updateChatHeader() {
   const lens = LENSES[state.lens] || LENSES.research;
   const docCount = activeWorkspaceDocs().length;
   qs("chat-workspace-title").textContent = activeWorkspaceTitle();
-  qs("chat-workspace-copy").textContent = `${lens.blurb} ${docCount ? `${docCount} source${docCount === 1 ? "" : "s"} ready in your library.` : "Upload a source to begin."}`;
+  qs("chat-workspace-copy").textContent = docCount
+    ? `${docCount} source${docCount === 1 ? "" : "s"} · ${lens.label} lens`
+    : "Upload a source to begin.";
 }
 function renderHistory() {
   const container = qs("history-list");
   if (!container) return;
   if (!state.conversations.length) {
-    container.innerHTML = `<div class="empty-box">No workspaces yet. Create one and upload a source to begin.</div>`;
+    container.innerHTML = `<div class="empty-box">No recent workspaces yet.</div>`;
     return;
   }
   container.innerHTML = groupConversationsByWorkspace(state.conversations).map(group => `
-    <section class="workspace-group">
-      <button type="button" class="workspace-group-trigger ${state.activeWorkspaceId === group.workspaceId ? "active" : ""}" onclick="activateWorkspace('${esc(group.workspaceId)}')">
+    <div class="workspace-group">
+      <button type="button"
+        class="workspace-group-trigger ${state.activeWorkspaceId === group.workspaceId ? 'active' : ''}"
+        onclick="activateWorkspace('${esc(group.workspaceId)}')">
         <span>${esc(group.title)}</span>
         <span>${group.items.length}</span>
       </button>
-      <div class="workspace-group-list">
-        ${group.items.map(item => `
-          <button type="button" class="history-item ${state.convId === item.id ? "active" : ""}" onclick="openConversation('${esc(item.id)}')">
-            <div class="history-title">${esc(item.title || "Untitled")}</div>
-            <div class="history-meta">${esc(prettyDate(item.created_at))}</div>
-          </button>
-        `).join("")}
-        ${(state.workspacePreviews[group.workspaceId] || []).length ? `<div class="history-thread">${state.workspacePreviews[group.workspaceId].map(item => `<div class="history-subitem">${esc(truncate(item, 42))}</div>`).join("")}</div>` : ""}
-      </div>
-    </section>
+    </div>
   `).join("");
 }
 
