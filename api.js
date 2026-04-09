@@ -21,7 +21,8 @@
   }
 
   function shouldShowProgressForUrl(url) {
-    return !String(url || "").includes("/upload-jobs/");
+    const s = String(url || "");
+    return !s.includes("/upload-jobs/") && !s.includes("/documents") && !s.includes("/upload-usage");
   }
 
   async function authedFetch(url, options = {}) {

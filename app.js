@@ -72,7 +72,7 @@ function renderShell() {
         <button type="button" class="btn primary" onclick="newWorkspace()"><span class="icon">add</span> New workspace</button>
       </div>
     </div>
-    <div class="sidebar-section-label">Recent workspaces</div>
+    <div class="sidebar-section-label">Recent</div>
     <div class="history" id="history-list"></div>
     <div class="sidebar-lens">
       <label class="sidebar-lens-label" for="lens-select">Lens</label>
@@ -265,17 +265,22 @@ function renderHistory() {
   const container = qs("history-list");
   if (!container) return;
   if (!state.conversations.length) {
-    container.innerHTML = `<div class="empty-box">No recent workspaces yet.</div>`;
+    container.innerHTML = `<div class="empty-box">No history yet.</div>`;
     return;
   }
   container.innerHTML = groupConversationsByWorkspace(state.conversations).map(group => `
     <div class="workspace-group">
-      <button type="button"
-        class="workspace-group-trigger ${state.activeWorkspaceId === group.workspaceId ? 'active' : ''}"
-        onclick="activateWorkspace('${esc(group.workspaceId)}')">
-        <span>${esc(group.title)}</span>
-        <span>${group.items.length}</span>
-      </button>
+      <div class="workspace-group-row">
+        <button type="button"
+          class="workspace-group-trigger ${state.activeWorkspaceId === group.workspaceId ? 'active' : ''}"
+          onclick="activateWorkspace('${esc(group.workspaceId)}')">
+          <span class="workspace-group-name">${esc(group.title)}</span>
+          <span class="workspace-group-count">${group.items.length}</span>
+        </button>
+        <button type="button" class="workspace-delete-btn" title="Delete workspace" onclick="deleteWorkspace('${esc(group.workspaceId)}')">
+          <span class="icon">delete</span>
+        </button>
+      </div>
     </div>
   `).join("");
 }
@@ -578,8 +583,8 @@ async function runAction(key) {
   }
   const title = state.selectedDoc ? `${action.label} - ${state.selectedDoc}` : action.label;
   await ensureConversation(title);
-  addUserMessage(`Quick action: ${action.label}`);
-  await saveMessage("user", `Quick action: ${action.label}`);
+  addUserMessage(action.label);
+  await saveMessage("user", action.label);
   const loadingId = addLoading();
   try {
     const response = await authedFetch(buildApiUrl("/quick"), {
@@ -914,6 +919,25 @@ async function resetWorkspace() {
   }
 }
 
+async function deleteWorkspace(workspaceId) {
+  if (!confirm("Remove this workspace and its sources?")) return;
+  try {
+    const response = await authedFetch(buildApiUrl("/reset"), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspace_id: workspaceId })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    state.docsByWorkspace[workspaceId] = [];
+    state.conversations = state.conversations.filter(c => (c.workspace_id || c.workspaceId) !== workspaceId);
+    if (state.activeWorkspaceId === workspaceId) newWorkspace();
+    else renderHistory();
+    toast("Workspace removed.");
+  } catch (error) {
+    toast(`Could not remove workspace: ${error.message}`);
+  }
+}
+
 async function loadUser(user) {
   state.user = user;
   showApp();
@@ -988,6 +1012,7 @@ Object.assign(window, {
   changePassword,
   closeAccount,
   closeUploadModal,
+  deleteWorkspace,
   doGoogle,
   doIn,
   doOut,

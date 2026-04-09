@@ -150,7 +150,7 @@
     const lens = window.WinkConfig.LENSES[state.lens] || window.WinkConfig.LENSES.research;
     const node = document.createElement("div");
     node.className = "message-user";
-    node.innerHTML = `<div>${esc(content)}</div><small>${esc(lens.label)} lens${state.selectedDoc ? ` | ${esc(truncate(state.selectedDoc, 28))}` : ""}</small>`;
+    node.innerHTML = `<div>${esc(content)}</div>${state.selectedDoc ? `<small>${esc(truncate(state.selectedDoc, 28))}</small>` : ""}`;
     qs("stream-inner").appendChild(node);
     node.scrollIntoView({ behavior: "smooth", block: "end" });
   }
