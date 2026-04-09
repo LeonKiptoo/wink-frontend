@@ -49,25 +49,36 @@ const {
   ensureApiReady
 } = window.WinkApi;
 function emptyStateMarkup() {
-  return `<div class="stream-empty"><div class="stream-empty-copy"><div class="stream-empty-kicker">Turn looong page PDFs into instant answers</div><p>Upload research papers, reports, contracts, or policy documents to start getting grounded answers in seconds.</p><button type="button" class="btn primary stream-empty-upload" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload sources</button></div></div>`;
+  return `
+    <div class="stream-empty">
+      <div class="stream-empty-icon"><span class="icon">auto_stories</span></div>
+      <div class="stream-empty-title">What would you like to explore?</div>
+      <div class="stream-empty-copy">Upload a research paper, report, contract, or any document — then ask questions, extract findings, and build reading notes in seconds.</div>
+      <div class="stream-empty-actions">
+        <button type="button" class="stream-empty-btn primary" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload your first document</button>
+        <button type="button" class="stream-empty-btn secondary" onclick="openUploadModal(true)"><span class="icon">help_outline</span> How does this work?</button>
+      </div>
+    </div>
+  `;
 }
 function renderShell() {
   qs("sidebar").innerHTML = `
-    <div class="brand">
-      <div class="mark">${esc(state.config?.appName || "Wink")}</div>
-      <div class="tag">Get key insights, summaries, and findings in seconds.</div>
+    <div class="sidebar-header">
+      <div class="brand">
+        <div class="brand-mark">${esc(state.config?.appName || "Wink")}</div>
+      </div>
+      <div class="sidebar-actions">
+        <button type="button" class="btn primary" onclick="newWorkspace()"><span class="icon">add</span> New workspace</button>
+        <button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload sources</button>
+      </div>
     </div>
-    <div class="stack">
-      <button type="button" class="btn primary" onclick="newWorkspace()"><span class="icon">add</span> New workspace</button>
-      <button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload</button>
-    </div>
-    <div class="section-label">Recent Workspaces</div>
-    <div class="history scroll" id="history-list"></div>
+    <div class="sidebar-section-label">Recent Workspaces</div>
+    <div class="history" id="history-list"></div>
     <div class="sidebar-lens">
-      <label class="sidebar-lens-label" for="lens-select">Lens</label>
+      <label class="sidebar-lens-label" for="lens-select">Analysis lens</label>
       <select id="lens-select" class="sidebar-lens-select" onchange="setLens(this.value)"></select>
     </div>
-    <div class="status sidebar-status" id="health-row">
+    <div class="sidebar-status status" id="health-row">
       <div class="dot"></div>
       <span id="health-copy">Checking connection...</span>
     </div>
@@ -77,46 +88,59 @@ function renderShell() {
         <strong id="profile-name">Loading...</strong>
         <span id="profile-tier">Free trial</span>
       </div>
-      <button type="button" class="icon-btn" onclick="openAccount()" title="Settings"><span class="icon">settings</span></button>
-      <button type="button" class="icon-btn" onclick="doOut()" title="Sign out"><span class="icon">logout</span></button>
+      <button type="button" class="icon-btn" onclick="openAccount()" title="Account settings"><span class="icon">settings</span></button>
     </div>
   `;
 
   qs("workspace").innerHTML = `
+    <div id="status-banner">
+      <div class="status-dot"></div>
+      <span id="status-copy">Backend is starting up. This takes about 30 seconds on first load.</span>
+    </div>
+    <div id="backend-progress" aria-hidden="true"><div class="backend-progress-track"><div class="backend-progress-shimmer"></div></div></div>
     <div class="upload-strip" id="upload-strip">
-      <div>
-        <strong id="strip-title">Processing upload</strong>
-        <span id="strip-copy">Preparing your sources...</span>
+      <div style="flex:1">
+        <strong id="strip-title">Processing your document</strong>
+        <span id="strip-copy">This usually takes 15–30 seconds...</span>
       </div>
       <div class="mini-progress"><i id="strip-progress"></i></div>
     </div>
-    <div class="chat-header">
-      <div>
-        <div class="chat-kicker">Active workspace</div>
-        <h2 id="chat-workspace-title">General Workspace</h2>
-        <p id="chat-workspace-copy">Start a workspace, upload sources, and ask questions grounded in your materials.</p>
+    <div class="chat-area">
+      <div class="chat-header">
+        <div>
+          <div class="chat-kicker">Active workspace</div>
+          <h2 id="chat-workspace-title">New Workspace</h2>
+          <p id="chat-workspace-copy">Upload a source to begin.</p>
+        </div>
+        <button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">add_circle</span> Add sources</button>
       </div>
-      <button type="button" class="btn secondary" onclick="openUploadModal(true)"><span class="icon">add_circle</span> Add sources</button>
-    </div>
-    <div class="stream scroll"><div class="stream-inner" id="stream-inner"></div></div>
-    <div class="composer">
-      <div class="composer-shell">
-        <div class="composer-box">
-          <textarea id="composer-input" placeholder="Ask a question..." onkeydown="handleComposerKey(event)" oninput="resizeComposer(this)"></textarea>
-          <button type="button" class="send" id="composer-send" onclick="sendMessage()" title="Send"><span class="icon">arrow_forward</span></button>
+      <div class="stream"><div class="stream-inner" id="stream-inner"></div></div>
+      <div class="composer">
+        <div class="composer-inner">
+          <div class="composer-shell">
+            <div class="composer-box">
+              <textarea id="composer-input" placeholder="Ask a question about your documents..." onkeydown="handleComposerKey(event)" oninput="resizeComposer(this)"></textarea>
+              <button type="button" class="send" id="composer-send" onclick="sendMessage()" title="Send"><span class="icon">arrow_forward</span></button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   `;
 
   qs("inspector").innerHTML = `
-    <div class="card card-shortcuts">
-      <div class="card-title"><span class="icon">bolt</span> Shortcuts</div>
-      <div class="card-subtitle">skip typing - get instant insights</div>
-      <div class="cta-grid" id="action-grid"></div>
-      <div class="section-label inspector-section">Sources</div>
-      <div class="source-list scroll" id="source-list"></div>
-      <button type="button" class="btn secondary btn-danger-outline" onclick="resetWorkspace()"><span class="icon">delete</span> Reset workspace</button>
+    <div class="inspector-inner">
+      <div>
+        <div class="inspector-section-title"><span class="icon">bolt</span> Shortcuts</div>
+        <div class="shortcuts-grid" id="action-grid"></div>
+      </div>
+      <div>
+        <div class="inspector-section-title"><span class="icon">description</span> Sources</div>
+        <div class="source-list" id="source-list"></div>
+      </div>
+    </div>
+    <div class="inspector-reset">
+      <button type="button" class="btn danger-ghost" style="width:100%" onclick="resetWorkspace()"><span class="icon">delete_sweep</span> Reset workspace</button>
     </div>
   `;
 
@@ -125,29 +149,32 @@ function renderShell() {
       <div class="modal-head">
         <div>
           <h3>Add your sources</h3>
-          <p>Upload documents, then let Wink extract, summarize, and index them in the background.</p>
+          <p>Upload documents and Wink will index them so you can ask questions instantly.</p>
         </div>
         <button class="close" onclick="closeUploadModal()"><span class="icon">close</span></button>
       </div>
-      <div class="drop">
-        <div class="drop-copy">Supported: PDF, DOCX, DOC, TXT, CSV, XLSX, PPTX, EPUB, RTF, MD, HTML</div>
-        <label class="upload-pick">
-          <span class="icon">upload_file</span> Choose files
-          <input id="upload-input" type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md,.html" onchange="handleFiles(Array.from(this.files || []))" />
-        </label>
-      </div>
       <div class="warning" id="upload-warning"></div>
-      <div class="upload-progress-wrap">
-        <div class="progress-bar"><span id="upload-progress"></span></div>
-        <div class="upload-progress-copy">
-          <strong id="upload-stage-title">Waiting for files</strong>
-          <span id="upload-stage-copy">Upload a few sources to start building cards, findings, and comparison notes.</span>
+      <div class="drop-zone" onclick="document.getElementById('upload-input').click()">
+        <div class="drop-zone-icon"><span class="icon">upload_file</span></div>
+        <div class="drop-title">Choose files or drag and drop</div>
+        <div class="drop-copy">PDF, DOCX, TXT, CSV, XLSX, PPTX, EPUB, RTF, MD, HTML</div>
+        <div style="margin-top:14px">
+          <label class="upload-pick">
+            <span class="icon">folder_open</span> Browse files
+            <input id="upload-input" type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx,.pptx,.epub,.rtf,.md,.html" onchange="handleFiles(Array.from(this.files || []))" />
+          </label>
         </div>
       </div>
-      <div class="stage-list" id="upload-stage-list"></div>
+      <div class="progress-wrap" id="upload-progress-wrap" style="display:none">
+        <div class="progress-label">
+          <strong id="upload-stage-title">Processing</strong>
+          <span id="upload-stage-pct">0%</span>
+        </div>
+        <div class="progress-bar"><span id="upload-progress"></span></div>
+        <div class="progress-message" id="upload-stage-copy"></div>
+      </div>
       <div class="modal-actions">
-        <button class="btn ghost" id="upload-secondary" onclick="closeUploadModal()">Hide</button>
-        <button class="btn secondary" id="upload-primary" onclick="document.getElementById('upload-input').click()">Choose files</button>
+        <button class="btn ghost" onclick="closeUploadModal()">Hide</button>
       </div>
     </div>
   `;
@@ -169,13 +196,13 @@ function renderShell() {
         <div class="plan current">
           <strong>Free trial</strong>
           <div class="plan-price">$0</div>
-          <div class="plan-meta">4 uploads per day. Saved history and full access to all quick actions before upgrading.</div>
+          <div class="plan-meta">4 uploads per day. Full access to all quick actions.</div>
         </div>
         <div class="plan">
           <strong>Pro</strong>
-          <div class="plan-price">$19 / month</div>
-          <div class="plan-meta">Expanded limits, faster throughput, and room for heavier compare workflows.</div>
-          <button class="btn primary modal-fill plan-upgrade" onclick="goPro()">Upgrade to Pro</button>
+          <div class="plan-price">$19/mo</div>
+          <div class="plan-meta">Unlimited uploads, faster processing, priority support.</div>
+          <button class="btn primary plan-upgrade modal-fill" onclick="goPro()">Upgrade to Pro</button>
         </div>
       </div>
       <div class="field modal-section">
@@ -200,15 +227,25 @@ function renderActions() {
   const grid = qs("action-grid");
   if (!grid) return;
   const docs = activeWorkspaceDocs();
-  if (!docs.length) {
-    grid.innerHTML = `<div class="empty-box">Upload one source, then start with Reading Snapshot or Key Findings.</div>`;
-    return;
-  }
-  grid.innerHTML = Object.entries(ACTIONS).map(([key, action]) => `
-    <button type="button" class="shortcut-btn ${action.compare ? "compare" : ""} ${(action.compare && docs.length < 2) ? "locked" : ""}" id="action-${key}" title="${esc((action.compare && docs.length < 2) ? "Add a second source to unlock compare" : action.description)}" onclick="runAction('${esc(key)}')" ${(action.compare && docs.length < 2) ? "disabled" : ""}>
-      <span class="icon">${esc(action.icon)}</span>${esc(action.label)}
-    </button>
-  `).join("");
+  const hasDoc = docs.length > 0;
+  grid.innerHTML = Object.entries(ACTIONS).map(([key, action]) => {
+    const isCompare = Boolean(action.compare);
+    const locked = !hasDoc || (isCompare && docs.length < 2);
+    const title = !hasDoc
+      ? "Upload a source to unlock"
+      : (isCompare && docs.length < 2)
+        ? "Add a second source to compare"
+        : action.description;
+    return `
+      <button type="button"
+        class="shortcut-btn${isCompare && hasDoc && docs.length >= 2 ? ' compare' : ''}${locked ? ' locked' : ''}"
+        id="action-${key}"
+        title="${esc(title)}"
+        onclick="runAction('${esc(key)}')"
+        ${locked ? 'disabled' : ''}>
+        <span class="icon">${esc(action.icon)}</span>${esc(action.label)}
+      </button>`;
+  }).join("");
 }
 
 function updateChatHeader() {
@@ -613,12 +650,18 @@ function openUploadModal(openPicker = false) {
 }
 function closeUploadModal() { qs("upload-backdrop").classList.remove("open"); }
 function resetUploadUi() {
-  qs("upload-warning").style.display = "none";
-  qs("upload-warning").textContent = "";
-  qs("upload-progress").style.width = "0%";
-  qs("upload-stage-title").textContent = "Waiting for files";
-  qs("upload-stage-copy").textContent = "Upload a few sources to start building cards, findings, and comparison notes.";
-  qs("upload-stage-list").innerHTML = STAGES.map(stage => `<div class="stage"><strong>${esc(stage.label)}</strong><span>Pending</span></div>`).join("");
+  const wrap = qs("upload-progress-wrap");
+  if (wrap) wrap.style.display = "none";
+  const warning = qs("upload-warning");
+  if (warning) { warning.style.display = "none"; warning.textContent = ""; }
+  const bar = qs("upload-progress");
+  if (bar) bar.style.width = "0%";
+  const pct = qs("upload-stage-pct");
+  if (pct) pct.textContent = "0%";
+  const title = qs("upload-stage-title");
+  if (title) title.textContent = "Processing";
+  const copy = qs("upload-stage-copy");
+  if (copy) copy.textContent = "";
 }
 function showUploadWarning(message) {
   qs("upload-warning").textContent = message;
@@ -638,15 +681,21 @@ function renderUploadStrip() {
 function updateUploadState(job) {
   state.uploadJob = job;
   renderUploadStrip();
-  qs("upload-progress").style.width = `${Math.max(0, Math.min(100, job.progress || 0))}%`;
-  qs("upload-stage-title").textContent = stageLabel(job.stage);
-  qs("upload-stage-copy").textContent = job.message || "Processing your sources...";
-  const currentIndex = Math.max(STAGES.findIndex(item => item.key === job.stage), 0);
-  qs("upload-stage-list").innerHTML = STAGES.map((stage, index) => {
-    const cls = job.status === "completed" ? "done" : index < currentIndex ? "done" : index === currentIndex ? "active" : "";
-    const stateText = job.status === "failed" && index === currentIndex ? "Failed" : job.status === "completed" ? "Done" : index < currentIndex ? "Done" : index === currentIndex ? "Active" : "Pending";
-    return `<div class="stage ${cls}"><strong>${esc(stage.label)}</strong><span>${esc(stateText)}</span></div>`;
-  }).join("");
+  const wrap = qs("upload-progress-wrap");
+  if (wrap) wrap.style.display = "block";
+  const progress = Math.max(0, Math.min(100, job.progress || 0));
+  const bar = qs("upload-progress");
+  if (bar) bar.style.width = `${progress}%`;
+  const pct = qs("upload-stage-pct");
+  if (pct) pct.textContent = `${progress}%`;
+  const title = qs("upload-stage-title");
+  if (title) {
+    if (job.status === "completed") title.textContent = "Ready";
+    else if (job.status === "failed") title.textContent = "Upload failed";
+    else title.textContent = stageLabel(job.stage) || "Processing";
+  }
+  const copy = qs("upload-stage-copy");
+  if (copy) copy.textContent = job.message || "";
 }
 function persistPendingUpload(job) {
   localStorage.setItem(PENDING_UPLOAD_KEY, JSON.stringify({ job_id: job.job_id, workspace_id: job.workspace_id || state.activeWorkspaceId || "general", filenames: job.filenames || [] }));
