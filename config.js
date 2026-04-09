@@ -21,6 +21,11 @@
   const ACTIONS = {
     overview: { label: "Reading Snapshot", icon: "summarize", description: "Get the fastest orientation to a document." },
     reading_card: { label: "Reading Card", icon: "note_stack", description: "Create a reusable card for one paper or source set." },
+    insights: {
+      label: "Key Insights",
+      icon: "lightbulb",
+      description: "Extract non-obvious, evidence-backed insights from the document."
+    },
     methodology: { label: "Methodology", icon: "science", description: "Extract design, sample, and analysis details." },
     findings: { label: "Key Findings", icon: "insights", description: "Pull the strongest evidence and takeaways." },
     literature_notes: { label: "Literature Notes", icon: "history_edu", description: "Turn a source into literature-review notes." },
@@ -56,11 +61,6 @@
   }
 
   async function loadRuntimeConfig() {
-    const localConfig = window.__WINK_CONFIG__ || null;
-    if (localConfig?.supabaseUrl && localConfig?.supabaseAnonKey) {
-      return normalizeConfig(localConfig);
-    }
-
     const endpoints = ["/client-config", "/config"];
     let lastError = new Error(FALLBACK_STATUS);
     for (const endpoint of endpoints) {
@@ -80,6 +80,10 @@
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(FALLBACK_STATUS);
       }
+    }
+    const fallback = window.__WINK_CONFIG_FALLBACK__ || null;
+    if (fallback?.supabaseUrl && fallback?.supabaseAnonKey) {
+      return normalizeConfig(fallback);
     }
     throw lastError;
   }

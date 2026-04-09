@@ -169,7 +169,7 @@ function renderShell() {
         <div class="plan current">
           <strong>Free trial</strong>
           <div class="plan-price">$0</div>
-          <div class="plan-meta">Metered access, saved history, and enough room to validate the workflow before upgrading.</div>
+          <div class="plan-meta">4 uploads per day. Saved history and full access to all quick actions before upgrading.</div>
         </div>
         <div class="plan">
           <strong>Pro</strong>

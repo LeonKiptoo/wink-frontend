@@ -47,7 +47,7 @@
     qs("status-banner").classList.add("show");
     setHealth("starting", "Starting backend...");
     try {
-      for (let attempt = 0; attempt < 12; attempt += 1) {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
         try {
           const response = await fetch(buildApiUrl("/health"), { signal: AbortSignal.timeout(8000) });
           if (response.ok) {

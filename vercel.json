@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/client-config", "destination": "/api/client-config" },
+    { "source": "/config", "destination": "/api/client-config" }
+  ]
+}
