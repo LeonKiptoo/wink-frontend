@@ -49,15 +49,24 @@ const {
   ensureApiReady
 } = window.WinkApi;
 function emptyStateMarkup() {
+  const lines = [
+    "Go through 50-page PDFs in under a minute.",
+    "Stop reading. Start understanding.",
+    "Extract methodology, findings, and gaps — instantly.",
+    "Your literature review, done in seconds.",
+    "Turn dense research into clear, citable answers.",
+    "Read smarter. Finish faster.",
+  ];
+  const line = lines[Math.floor(Math.random() * lines.length)];
   return `
     <div class="stream-empty">
       <div class="stream-empty-icon"><span class="icon">auto_stories</span></div>
       <div class="stream-empty-title">What would you like to explore?</div>
-      <div class="stream-empty-copy">Upload a research paper, report, contract, or any document — then ask questions, extract findings, and build reading notes in seconds.</div>
+      <div class="stream-empty-copy">Upload a research paper, report, or contract — then ask questions, extract findings, and build reading notes in seconds.</div>
       <div class="stream-empty-actions">
         <button type="button" class="stream-empty-btn primary" onclick="openUploadModal(true)"><span class="icon">upload_file</span> Upload your first document</button>
-        <button type="button" class="stream-empty-btn secondary" onclick="openUploadModal(true)"><span class="icon">help_outline</span> How does this work?</button>
       </div>
+      <div class="stream-empty-tagline">${line}</div>
     </div>
   `;
 }
@@ -65,7 +74,7 @@ function renderShell() {
   qs("sidebar").innerHTML = `
     <div class="sidebar-header">
       <div class="brand">
-        <div class="brand-mark">${esc(state.config?.appName || "Wink")}</div>
+        <div class="brand-mark" onclick="newWorkspace()" style="cursor:pointer" title="New workspace">${esc(state.config?.appName || "Wink")}</div>
         <div class="brand-tag">by Wnkia</div>
       </div>
       <div class="sidebar-actions">
@@ -254,12 +263,13 @@ function renderActions() {
 }
 
 function updateChatHeader() {
-  const lens = LENSES[state.lens] || LENSES.research;
   const docCount = activeWorkspaceDocs().length;
   qs("chat-workspace-title").textContent = activeWorkspaceTitle();
   qs("chat-workspace-copy").textContent = docCount
-    ? `${docCount} source${docCount === 1 ? "" : "s"} · ${lens.label} lens`
-    : "Upload a source to begin.";
+    ? docCount === 1
+      ? "1 source indexed"
+      : docCount + " sources indexed"
+    : "";
 }
 function renderHistory() {
   const container = qs("history-list");
@@ -928,13 +938,27 @@ async function deleteWorkspace(workspaceId) {
       body: JSON.stringify({ workspace_id: workspaceId })
     });
     if (!response.ok) throw new Error(await response.text());
-    state.docsByWorkspace[workspaceId] = [];
-    state.conversations = state.conversations.filter(c => (c.workspace_id || c.workspaceId) !== workspaceId);
-    if (state.activeWorkspaceId === workspaceId) newWorkspace();
-    else renderHistory();
+    if (state.sb && state.user) {
+      const convIds = state.conversations
+        .filter(c => (c.workspace_id || c.workspaceId) === workspaceId)
+        .map(c => c.id);
+      if (convIds.length) {
+        await state.sb.from("messages").delete().in("conversation_id", convIds);
+        await state.sb.from("conversations").delete().in("id", convIds);
+      }
+    }
+    delete state.docsByWorkspace[workspaceId];
+    state.conversations = state.conversations.filter(
+      c => (c.workspace_id || c.workspaceId) !== workspaceId
+    );
+    if (state.activeWorkspaceId === workspaceId) {
+      newWorkspace();
+    } else {
+      renderHistory();
+    }
     toast("Workspace removed.");
   } catch (error) {
-    toast(`Could not remove workspace: ${error.message}`);
+    toast("Could not remove workspace: " + error.message);
   }
 }
 
